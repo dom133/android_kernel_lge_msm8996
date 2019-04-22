@@ -424,7 +424,6 @@ static struct device_attribute power_supply_attrs[] = {
 #if defined(CONFIG_BATTERY_MAX17050) || defined(CONFIG_LGE_PM_FG_AGE)
 	POWER_SUPPLY_ATTR(battery_condition),
 	POWER_SUPPLY_ATTR(battery_age),
-	POWER_SUPPLY_ATTR(battery_age_level),
 #endif
 #if defined(CONFIG_IDTP9223_CHARGER) || defined(CONFIG_MACH_MSM8996_LUCYE)
 	POWER_SUPPLY_ATTR(connection_type),

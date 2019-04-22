@@ -338,6 +338,21 @@ static struct fg_mem_data fg_backup_regs[FG_BACKUP_MAX] = {
 
 
 #ifdef CONFIG_LGE_PM
+extern bool minfreq_enabled;
+static void fg_set_minfreq(bool enable) {
+	int i;
+	minfreq_enabled = enable;
+	lock_device_hotplug();
+	for_each_online_cpu(i){
+		int ret;
+		ret = cpufreq_update_policy(i);
+		if (ret)
+			pr_err("Failed to set cpu%d minfreq %sable",
+			       i, enable ? "en" : "dis");
+	}
+	unlock_device_hotplug();
+	pr_info("Set minfreq %sable\n", enable ? "en" : "dis");
+}
 #define NUMBER_DELTA_TEMP 25
 
 static int temp_comp[NUMBER_DELTA_TEMP][2] = {
@@ -3982,28 +3997,6 @@ static int fg_get_cc_soc(struct fg_chip *chip, int *cc_soc)
 	return 0;
 }
 
-static int fg_get_current_cc(struct fg_chip *chip)
-{
-	int cc_soc, rc;
-	int64_t current_capacity;
-
-	if (!(chip->wa_flag & USE_CC_SOC_REG))
-		return chip->learning_data.cc_uah;
-
-	if (!chip->learning_data.learned_cc_uah)
-		return -EINVAL;
-
-	rc = fg_get_cc_soc(chip, &cc_soc);
-	if (rc < 0) {
-		pr_err("Failed to get cc_soc, rc=%d\n", rc);
-		return rc;
-	}
-
-	current_capacity = cc_soc * chip->learning_data.learned_cc_uah;
-	do_div(current_capacity, FULL_PERCENT_28BIT);
-	return current_capacity;
-}
-
 #define BATT_MISSING_STS BIT(6)
 static bool is_battery_missing(struct fg_chip *chip)
 {
@@ -4990,7 +4983,6 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_VOLTAGE_OCV,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
-	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_CHARGE_NOW,
 	POWER_SUPPLY_PROP_CHARGE_NOW_RAW,
 	POWER_SUPPLY_PROP_CHARGE_NOW_ERROR,
@@ -5101,9 +5093,6 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW_RAW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_CC_CHARGE);
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
-		val->intval = fg_get_current_cc(chip);
 		break;
 	case POWER_SUPPLY_PROP_HI_POWER:
 		val->intval = !!chip->bcl_lpm_disabled;
@@ -7004,6 +6993,10 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 		goto no_profile;
 	}
 
+#ifdef CONFIG_LGE_PM
+	fg_set_minfreq(true);
+#endif
+
 	vbat_in_range = get_vbat_est_diff(chip)
 		< settings[FG_MEM_VBAT_EST_DIFF].value * 1000;
 #ifdef CONFIG_LGE_PM
@@ -7120,6 +7113,10 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 			pr_err("Error in updating ESR, rc=%d\n", rc);
 	}
 done:
+#ifdef CONFIG_LGE_PM
+	fg_set_minfreq(false);
+#endif
+
 	if (chip->charging_disabled) {
 		rc = set_prop_enable_charging(chip, true);
 		if (rc)
