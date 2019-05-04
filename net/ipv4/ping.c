@@ -611,9 +611,12 @@ int ping_getfrag(void *from, char *to,
 	if (offset == 0) {
 		if (fraglen < sizeof(struct icmphdr))
 			BUG();
-		if (csum_partial_copy_fromiovecend(to + sizeof(struct icmphdr),
-			    pfh->iov, 0, fraglen - sizeof(struct icmphdr),
-			    &pfh->wcheck))
+		if ((fraglen - sizeof(struct icmphdr)) &&
+		    csum_partial_copy_fromiovecend
+					(to + sizeof(struct icmphdr),
+					pfh->iov, 0,
+					fraglen - sizeof(struct icmphdr),
+					&pfh->wcheck))
 			return -EFAULT;
 	} else if (offset < sizeof(struct icmphdr)) {
 			BUG();
@@ -775,10 +778,8 @@ static int ping_v4_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 	ipc.addr = faddr = daddr;
 
 	if (ipc.opt && ipc.opt->opt.srr) {
-		if (!daddr) {
-			err = -EINVAL;
-			goto out_free;
-		}
+		if (!daddr)
+			return -EINVAL;
 		faddr = ipc.opt->opt.faddr;
 	}
 	tos = get_rttos(&ipc, inet);
@@ -844,7 +845,6 @@ back_from_confirm:
 
 out:
 	ip_rt_put(rt);
-out_free:
 	if (free)
 		kfree(ipc.opt);
 	if (!err) {

@@ -48,6 +48,10 @@
 #include <net/addrconf.h>
 #include <net/inet_common.h>
 #include <net/tcp.h>
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+#include <net/mptcp.h>
+#include <net/mptcp_v4.h>
+#endif
 #include <net/udp.h>
 #include <net/udplite.h>
 #include <net/xfrm.h>
@@ -198,7 +202,16 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 				sock_prot_inuse_add(net, &tcp_prot, 1);
 				local_bh_enable();
 				sk->sk_prot = &tcp_prot;
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+#ifdef CONFIG_MPTCP
+				if (sock_flag(sk, SOCK_MPTCP))
+					icsk->icsk_af_ops = &mptcp_v4_specific;
+				else
+#endif
+					icsk->icsk_af_ops = &ipv4_specific;
+#else
 				icsk->icsk_af_ops = &ipv4_specific;
+#endif 
 				sk->sk_socket->ops = &inet_stream_ops;
 				sk->sk_family = PF_INET;
 				tcp_sync_mss(sk, icsk->icsk_pmtu_cookie);
@@ -875,8 +888,12 @@ int ipv6_setsockopt(struct sock *sk, int level, int optname,
 #ifdef CONFIG_NETFILTER
 	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IPV6_IPSEC_POLICY &&
-			optname != IPV6_XFRM_POLICY)
-		err = nf_setsockopt(sk, PF_INET6, optname, optval, optlen);
+			optname != IPV6_XFRM_POLICY) {
+		lock_sock(sk);
+		err = nf_setsockopt(sk, PF_INET6, optname, optval,
+				optlen);
+		release_sock(sk);
+	}
 #endif
 	return err;
 }
@@ -906,9 +923,12 @@ int compat_ipv6_setsockopt(struct sock *sk, int level, int optname,
 #ifdef CONFIG_NETFILTER
 	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IPV6_IPSEC_POLICY &&
-	    optname != IPV6_XFRM_POLICY)
-		err = compat_nf_setsockopt(sk, PF_INET6, optname, optval,
-					   optlen);
+	    optname != IPV6_XFRM_POLICY) {
+		lock_sock(sk);
+		err = compat_nf_setsockopt(sk, PF_INET6, optname,
+					   optval, optlen);
+		release_sock(sk);
+	}
 #endif
 	return err;
 }
@@ -1314,7 +1334,10 @@ int ipv6_getsockopt(struct sock *sk, int level, int optname,
 		if (get_user(len, optlen))
 			return -EFAULT;
 
-		err = nf_getsockopt(sk, PF_INET6, optname, optval, &len);
+		lock_sock(sk);
+		err = nf_getsockopt(sk, PF_INET6, optname, optval,
+				&len);
+		release_sock(sk);
 		if (err >= 0)
 			err = put_user(len, optlen);
 	}
@@ -1353,7 +1376,10 @@ int compat_ipv6_getsockopt(struct sock *sk, int level, int optname,
 		if (get_user(len, optlen))
 			return -EFAULT;
 
-		err = compat_nf_getsockopt(sk, PF_INET6, optname, optval, &len);
+		lock_sock(sk);
+		err = compat_nf_getsockopt(sk, PF_INET6,
+					   optname, optval, &len);
+		release_sock(sk);
 		if (err >= 0)
 			err = put_user(len, optlen);
 	}

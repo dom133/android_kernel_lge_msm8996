@@ -152,7 +152,7 @@ static void lge_set_image_quality_cmds(struct mdss_dsi_ctrl_pdata *ctrl)
 	}
 #endif
 #if defined(CONFIG_LGE_DISPLAY_HDR_MODE)
-	if(ctrl->hdr_status > 0) {
+	if(ctrl->lge_extra.hdr_mode > 0) {
 		pr_info("%s: HDR Mode ON\n", __func__);
 		/* Dolby Setting : CABC OFF, SRE OFF, SAT OFF, SH OFF */
 		mask = (CABC_MASK | SRE_MASK);
@@ -356,10 +356,7 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		}
 #endif
 		if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
-			bool out;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-			out = MODE_GPIO_HIGH;
-#endif
+			bool out = false;
 
 			if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
 				out = true;
@@ -442,8 +439,10 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_U2_TO_U3], CMD_REQ_COMMIT);
 			goto notify;
 		case ON_AND_AOD:
+#if defined(CONFIG_LGE_DISPLAY_AOD_WITH_MIPI)
 			lcd_watch_font_crc_check_after_panel_reset();
 			lcd_watch_restore_reg_after_panel_reset();
+#endif
 			if (ctrl->display_on_and_aod_comds.cmd_cnt)
 				mdss_dsi_panel_cmds_send(ctrl, &ctrl->display_on_and_aod_comds, CMD_REQ_COMMIT);
 			lge_set_sre_cmds(ctrl);
@@ -455,7 +454,9 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 				 mdss_dba_utils_video_on(pinfo->dba_data, pinfo);
 			goto notify;
 		case ON_CMD:
+#if defined(CONFIG_LGE_DISPLAY_AOD_WITH_MIPI)
 			lcd_watch_font_crc_check_after_panel_reset();
+#endif
 			break;
 		case CMD_SKIP:
 			goto notify;
@@ -477,14 +478,18 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->display_on_cmds, CMD_REQ_COMMIT);
 #if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
 notify:
+#endif
 	{
 		int param;
+#if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
 		param = pinfo->aod_cur_mode;
+#else
+		param = 3;
+#endif
 		if(touch_notifier_call_chain(LCD_EVENT_LCD_MODE,
 							(void *)&param))
 			pr_err("[AOD] Failt to send notify to touch\n");
 	}
-#endif
 
 end:
 	pr_err("[Display] %s:-\n", __func__);
@@ -541,16 +546,29 @@ int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 
 #if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
 notify:
+#endif
 	{
 		int param;
+#if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
 		param = pinfo->aod_cur_mode;
+#else
+		param = 0;
+#endif
 		if(touch_notifier_call_chain(LCD_EVENT_LCD_MODE,
 						(void *)&param))
 			pr_err("[AOD] Failt to send notify to touch\n");
 	}
-#endif
 end:
 	pr_err("[Display] %s:-\n", __func__);
 	return 0;
 }
 #endif
+
+int lge_ddic_ops_init(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	int rc = 0;
+
+	pr_info("%s: ddic_ops is not configured\n", __func__);
+
+	return rc;
+}

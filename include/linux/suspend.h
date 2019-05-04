@@ -237,6 +237,10 @@ extern void arch_suspend_disable_irqs(void);
  */
 extern void arch_suspend_enable_irqs(void);
 
+#ifdef CONFIG_LGE_PM
+extern bool suspend_debug_irq_pin(void);
+#endif
+
 extern int pm_suspend(suspend_state_t state);
 #else /* !CONFIG_SUSPEND */
 #define suspend_valid_only_mem	NULL
@@ -341,8 +345,6 @@ extern int swsusp_page_is_forbidden(struct page *);
 extern void swsusp_set_page_free(struct page *);
 extern void swsusp_unset_page_free(struct page *);
 extern unsigned long get_safe_page(gfp_t gfp_mask);
-extern asmlinkage int swsusp_arch_suspend(void);
-extern asmlinkage int swsusp_arch_resume(void);
 
 extern void hibernation_set_ops(const struct platform_hibernation_ops *ops);
 extern int hibernate(void);

@@ -27,20 +27,6 @@
 
 #include "smpboot.h"
 
-/*
- * This assumes that half of the CPUs are little and that they have lower
- * CPU numbers than the big CPUs (e.g., on an 8-core system, CPUs 0-3 would be
- * little and CPUs 4-7 would be big).
- */
-#define LITTLE_CPU_MASK	((1UL << (NR_CPUS / 2)) - 1)
-#define BIG_CPU_MASK	(((1UL << NR_CPUS) - 1) & ~LITTLE_CPU_MASK)
-static const unsigned long little_cluster_cpus = LITTLE_CPU_MASK;
-const struct cpumask *const cpu_lp_mask = to_cpumask(&little_cluster_cpus);
-EXPORT_SYMBOL(cpu_lp_mask);
-static const unsigned long big_cluster_cpus = BIG_CPU_MASK;
-const struct cpumask *const cpu_perf_mask = to_cpumask(&big_cluster_cpus);
-EXPORT_SYMBOL(cpu_perf_mask);
-
 #ifdef CONFIG_SMP
 /* Serializes the updates to cpu_online_mask, cpu_present_mask */
 static DEFINE_MUTEX(cpu_add_remove_lock);
@@ -206,14 +192,14 @@ void cpu_hotplug_done(void)
 void cpu_hotplug_disable(void)
 {
 	cpu_maps_update_begin();
-	cpu_hotplug_disabled++;
+	cpu_hotplug_disabled = 1;
 	cpu_maps_update_done();
 }
 
 void cpu_hotplug_enable(void)
 {
 	cpu_maps_update_begin();
-	WARN_ON(--cpu_hotplug_disabled < 0);
+	cpu_hotplug_disabled = 0;
 	cpu_maps_update_done();
 }
 
@@ -405,10 +391,9 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen)
 	 *
 	 * Wait for the stop thread to go away.
 	 */
-	while (!idle_cpu_relaxed(cpu)) {
-		cpu_read_relax();
-	}
-	
+	while (!idle_cpu(cpu))
+		cpu_relax();
+
 	hotplug_cpu__broadcast_tick_pull(cpu);
 	/* This actually kills the CPU. */
 	__cpu_die(cpu);
@@ -430,15 +415,13 @@ int __ref cpu_down(unsigned int cpu)
 {
 	int err;
 
-	/* kthreads require one little-cluster CPU to stay online */
-	if (!cpu)
-		return -EINVAL;
-
 	cpu_maps_update_begin();
+
 	if (cpu_hotplug_disabled) {
 		err = -EBUSY;
 		goto out;
 	}
+
 	err = _cpu_down(cpu, 0);
 
 out:
@@ -593,18 +576,13 @@ int disable_nonboot_cpus(void)
 		}
 	}
 
-	if (!error)
+	if (!error) {
 		BUG_ON(num_online_cpus() > 1);
-	else
+		/* Make sure the CPUs won't be enabled by someone else */
+		cpu_hotplug_disabled = 1;
+	} else {
 		pr_err("Non-boot CPUs are not disabled\n");
-
-	/*
-	 * Make sure the CPUs won't be enabled by someone else. We need to do
-	 * this even in case of failure as all disable_nonboot_cpus() users are
-	 * supposed to do enable_nonboot_cpus() on the failure path.
-	 */
-	cpu_hotplug_disabled++;
-
+	}
 	cpu_maps_update_done();
 	return error;
 }
@@ -624,7 +602,7 @@ void __ref enable_nonboot_cpus(void)
 
 	/* Allow everyone to use the CPU hotplug again */
 	cpu_maps_update_begin();
-	WARN_ON(--cpu_hotplug_disabled < 0);
+	cpu_hotplug_disabled = 0;
 	if (cpumask_empty(frozen_cpus))
 		goto out;
 

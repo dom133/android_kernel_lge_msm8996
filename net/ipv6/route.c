@@ -1368,7 +1368,6 @@ struct dst_entry *icmp6_dst_alloc(struct net_device *dev,
 	}
 
 	rt->dst.flags |= DST_HOST;
-	rt->dst.input = ip6_input;
 	rt->dst.output  = ip6_output;
 	atomic_set(&rt->dst.__refcnt, 1);
 	rt->rt6i_gateway  = fl6->daddr;
@@ -2324,14 +2323,12 @@ void rt6_mtu_change(struct net_device *dev, unsigned int mtu)
 
 static const struct nla_policy rtm_ipv6_policy[RTA_MAX+1] = {
 	[RTA_GATEWAY]           = { .len = sizeof(struct in6_addr) },
-	[RTA_PREFSRC]		= { .len = sizeof(struct in6_addr) },
 	[RTA_OIF]               = { .type = NLA_U32 },
 	[RTA_IIF]		= { .type = NLA_U32 },
 	[RTA_PRIORITY]          = { .type = NLA_U32 },
 	[RTA_METRICS]           = { .type = NLA_NESTED },
 	[RTA_MULTIPATH]		= { .len = sizeof(struct rtnexthop) },
 	[RTA_UID]		= { .type = NLA_U32 },
-	[RTA_TABLE]		= { .type = NLA_U32 },
 };
 
 static int rtm_to_fib6_config(struct sk_buff *skb, struct nlmsghdr *nlh,
@@ -2640,6 +2637,15 @@ static int rt6_fill_node(struct net *net,
 			goto nla_put_failure;
 	}
 
+              /* 2014-11-21, hani.park@lge.com LGP_DATA_QC_CR [START] */
+              //G3L netlink kernel crash in case of WiFi on/off repeat
+              if (unlikely((unsigned long)dst_metrics_ptr(&rt->dst) < 2)) {
+                WARN(1, "Got null _metrics from rt->dst");
+                printk(KERN_DEBUG "Got null _metrics from rt->dst \n");
+                goto nla_put_failure;
+              }
+              /* 2014-11-21, hani.park@lge.com LGP_DATA_QC_CR [END] */
+
 	if (rtnetlink_put_metrics(skb, dst_metrics_ptr(&rt->dst)) < 0)
 		goto nla_put_failure;
 
@@ -2828,11 +2834,7 @@ static int ip6_route_dev_notify(struct notifier_block *this,
 		net->ipv6.ip6_blk_hole_entry->dst.dev = dev;
 		net->ipv6.ip6_blk_hole_entry->rt6i_idev = in6_dev_get(dev);
 #endif
-	 } else if (event == NETDEV_UNREGISTER &&
-		    dev->reg_state != NETREG_UNREGISTERED) {
-		/* NETDEV_UNREGISTER could be fired for multiple times by
-		 * netdev_wait_allrefs(). Make sure we only call this once.
-		 */
+	 } else if (event == NETDEV_UNREGISTER) {
 		in6_dev_put(net->ipv6.ip6_null_entry->rt6i_idev);
 #ifdef CONFIG_IPV6_MULTIPLE_TABLES
 		in6_dev_put(net->ipv6.ip6_prohibit_entry->rt6i_idev);

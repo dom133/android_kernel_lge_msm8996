@@ -23,6 +23,9 @@
 #include <linux/delay.h>
 #include <linux/leds-qpnp-wled.h>
 #include <linux/lge_display_debug.h>
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+#include <linux/spinlock.h>
+#endif
 
 #define QPNP_IRQ_FLAGS	(IRQF_TRIGGER_RISING | \
 			IRQF_TRIGGER_FALLING | \
@@ -43,7 +46,7 @@
 #define QPNP_WLED_OVP_REG(b)		(b + 0x4D)
 #define QPNP_WLED_ILIM_REG(b)		(b + 0x4E)
 #define QPNP_WLED_SOFTSTART_RAMP_DLY(b) (b + 0x53)
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
+#if defined(CONFIG_LGE_DISPLAY_COMMON)
 #define QPNP_WLED_SLEW_REG(b)		(b + 0x54)
 #endif
 #define QPNP_WLED_VLOOP_COMP_RES_REG(b)	(b + 0x55)
@@ -100,7 +103,7 @@
 #endif
 #define QPNP_WLED_SWITCH_FREQ_800_KHZ	800
 #define QPNP_WLED_SWITCH_FREQ_1600_KHZ	1600
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
+#if defined(CONFIG_LGE_DISPLAY_COMMON)
 #define QPNP_WLED_SWITCH_SLEW_RATE_x1	0x00
 #define QPNP_WLED_SWITCH_SLEW_RATE_x1P5	0x01
 #define QPNP_WLED_SWITCH_SLEW_RATE_x2	0x02
@@ -165,6 +168,7 @@
 #define QPNP_WLED_CABC_MASK		0x7F
 #define QPNP_WLED_CABC_SHIFT		7
 #define QPNP_WLED_CURR_SINK_SHIFT	4
+#define QPNP_WLED_CURR_SINK_MASK	GENMASK(7, 4)
 #define QPNP_WLED_BRIGHT_LSB_MASK	0xFF
 #define QPNP_WLED_BRIGHT_MSB_SHIFT	8
 #define QPNP_WLED_BRIGHT_MSB_MASK	0x0F
@@ -337,6 +341,11 @@ struct qpnp_wled {
 	bool disp_type_amoled;
 	bool en_ext_pfet_sc_pro;
 	bool prev_state;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+	bool           fsc_update;
+	spinlock_t     fsc_lock;
+#endif
+
 };
 
 #if defined(CONFIG_LGE_DISPLAY_AOD_USE_QPNP_WLED) || defined(CONFIG_LGE_PP_AD_SUPPORTED)
@@ -429,11 +438,138 @@ static int qpnp_wled_sync_reg_toggle(struct qpnp_wled *wled)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+#define LGE_WLED_AOD_FSC      2500
+#define LGE_WLED_AOD_STRINGS  2
+
+void set_wled_strings(struct qpnp_wled *wled)
+{
+	int i = 0, rc;
+	u8 strings_aod[2] = {01, 02};
+	u8 strings_full[4] = {00, 01, 02, 03};
+	u8 *strings;
+	u8 temp = 0;
+	u8 sink_en = 0;
+	u8 mask = 0;
+
+	if (wled->num_strings == QPNP_WLED_MAX_STRINGS)
+		strings = strings_full;
+	else
+		strings = strings_aod;
+
+	for (i = 0; i < wled->num_strings; i++) {
+		wled->strings[i] = strings[i];
+		if (wled->strings[i] >=  QPNP_WLED_MAX_STRINGS) {
+			dev_err(&wled->spmi->dev, "Invalid string number\n");
+			wled->num_strings = 0;
+			return;
+		}
+		temp = wled->strings[i] + QPNP_WLED_CURR_SINK_SHIFT;
+		sink_en |= (1 << temp);
+	}
+	pr_info("[Display] wled sink : %x\n", sink_en);
+
+	mask = QPNP_WLED_CURR_SINK_MASK;
+	rc = qpnp_wled_masked_write_reg(wled,
+			mask, &sink_en, QPNP_WLED_CURR_SINK_REG(wled->sink_base));
+	if (rc < 0) {
+		dev_err(&wled->spmi->dev,
+				"Failed to enable WLED sink config rc = %d\n", rc);
+		wled->num_strings = 0;
+		return;
+	}
+
+	rc = qpnp_wled_sync_reg_toggle(wled);
+	if (rc < 0) {
+		wled->num_strings = 0;
+		dev_err(&wled->spmi->dev, "Failed to toggle sync reg %d\n", rc);
+	}
+}
+
+int set_fsc_wled(struct qpnp_wled *wled, u16 fs_curr_ua)
+{
+	int i, rc, temp = 0;
+	u8 reg = 0;
+	u16 data = 0;
+
+	data = fs_curr_ua;
+
+	for (i = 0; i < QPNP_WLED_MAX_STRINGS; i++) {
+		if (data < QPNP_WLED_FS_CURR_MIN_UA)
+			data = QPNP_WLED_FS_CURR_MIN_UA;
+		else if (data > QPNP_WLED_FS_CURR_MAX_UA)
+			data = QPNP_WLED_FS_CURR_MAX_UA;
+
+		rc = qpnp_wled_read_reg(wled, &reg,
+				QPNP_WLED_FS_CURR_REG(wled->sink_base,
+							wled->strings[i]));
+		if (rc < 0)
+			return rc;
+		reg &= QPNP_WLED_FS_CURR_MASK;
+		temp = data / QPNP_WLED_FS_CURR_STEP_UA;
+		reg |= temp;
+		rc = qpnp_wled_write_reg(wled, &reg,
+				QPNP_WLED_FS_CURR_REG(wled->sink_base,
+							wled->strings[i]));
+		if (rc < 0)
+			return rc;
+	}
+
+	wled->fs_curr_ua = data;
+
+	rc = qpnp_wled_sync_reg_toggle(wled);
+	if (rc < 0) {
+		dev_err(&wled->spmi->dev, "Failed to toggle sync reg %d\n", rc);
+		return rc;
+	}
+
+	pr_info("[Display] %s success fsc : %d\n", __func__, fs_curr_ua);
+	return rc;
+}
+#endif
+
 /* set wled to a level of brightness */
 static int qpnp_wled_set_level(struct qpnp_wled *wled, int level)
 {
 	int i, rc;
 	u8 reg;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+	u16 low_limit = WLED_MAX_LEVEL_4095 * 4 / 1000;
+	unsigned long flags;
+	bool local_fsc_update;
+	u16 local_fsc_ua;
+
+	/* WLED's lower limit of operation is 0.4% */
+	if (level > 0 && level < low_limit)
+		level = low_limit;
+
+	spin_lock_irqsave(&wled->fsc_lock, flags);
+	local_fsc_update = wled->fsc_update;
+	local_fsc_ua = wled->fs_curr_ua;
+	spin_unlock_irqrestore(&wled->fsc_lock, flags);
+
+	if ((level == low_limit) && (local_fsc_ua == LGE_WLED_AOD_FSC)) {
+		if(wled->num_strings != LGE_WLED_AOD_STRINGS) {
+			wled->num_strings = LGE_WLED_AOD_STRINGS;
+			set_wled_strings(wled);
+			local_fsc_update = true;
+		}
+	} else {
+		if (wled->num_strings != QPNP_WLED_MAX_STRINGS) {
+			wled->num_strings = QPNP_WLED_MAX_STRINGS;
+			set_wled_strings(wled);
+			local_fsc_update = true;
+		}
+	}
+
+	if (local_fsc_update) {
+		rc = set_fsc_wled(wled, local_fsc_ua);
+		if (rc < 0)
+			wled->fsc_update = true;
+		else
+			wled->fsc_update = false;
+	}
+#endif
 
 	DISP_DEBUG(BL, "Set level : %d\n", level);
 	/* set brightness registers */
@@ -1007,6 +1143,23 @@ void qpnp_wled_dimming(int dst_lvl, int current_lvl)
     }
 	unlock_mutex:
     mutex_unlock(&wled->cdev.led_access);
+}
+#endif
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+void qpnp_set_fsc(struct led_classdev *led_cdev, int data)
+{
+	struct qpnp_wled *wled;
+	unsigned long flags;
+	wled = container_of(led_cdev, struct qpnp_wled, cdev);
+
+	spin_lock_irqsave(&wled->fsc_lock, flags);
+	pr_info("[Display] %s wled->fs_curr_ua : %d, data : %d\n", __func__, wled->fs_curr_ua, data);
+	if (wled->fs_curr_ua != data) {
+		wled->fs_curr_ua = data;
+		wled->fsc_update = true;
+	}
+	spin_unlock_irqrestore(&wled->fsc_lock, flags);
 }
 #endif
 
@@ -1900,6 +2053,9 @@ static int qpnp_wled_probe(struct spmi_device *spmi)
 		return rc;
 	}
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+	spin_lock_init(&wled->fsc_lock);
+#endif
 	rc = qpnp_wled_config(wled);
 	if (rc) {
 		dev_err(&spmi->dev, "wled config failed\n");
@@ -1912,6 +2068,10 @@ static int qpnp_wled_probe(struct spmi_device *spmi)
 
 	wled->cdev.brightness_set = qpnp_wled_set;
 	wled->cdev.brightness_get = qpnp_wled_get;
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+	wled->cdev.set_fsc = qpnp_set_fsc;
+#endif
 
 	wled->cdev.max_brightness = WLED_MAX_LEVEL_4095;
 

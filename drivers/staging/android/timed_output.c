@@ -32,7 +32,7 @@ static struct timed_output_dev *hdev = NULL;
 static int match_name(struct device *dev, const void *data)
 {
 	const char *name = data;
-	return data && ((strcmp(dev_name(dev), name) == 0));
+    return data && ((strcmp(dev_name(dev), name) == 0));
 }
 */
 struct timed_output_dev *timed_output_dev_find_by_name(const char *name)
@@ -43,7 +43,7 @@ struct timed_output_dev *timed_output_dev_find_by_name(const char *name)
 	return hdev;
 }
 EXPORT_SYMBOL_GPL(timed_output_dev_find_by_name);
-
+ 
 static ssize_t enable_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {

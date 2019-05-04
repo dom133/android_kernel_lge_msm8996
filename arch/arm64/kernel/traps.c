@@ -51,7 +51,7 @@ static const char *handler[]= {
 	"Error"
 };
 
-int show_unhandled_signals = 0;
+int show_unhandled_signals = 1;
 
 /*
  * Dump out the contents of some memory nicely...
@@ -111,7 +111,7 @@ static void __dump_instr(const char *lvl, struct pt_regs *regs)
 	for (i = -4; i < 1; i++) {
 		unsigned int val, bad;
 
-		bad = get_user(val, &((u32 *)addr)[i]);
+		bad = __get_user(val, &((u32 *)addr)[i]);
 
 		if (!bad)
 			p += sprintf(p, i == 0 ? "(%08x) " : "%08x ", val);
@@ -186,6 +186,10 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 #endif
 #define S_SMP " SMP"
 
+#ifdef CONFIG_MACH_LGE
+extern DEFINE_PER_CPU(struct pt_regs, regs_before_stop);
+#endif
+
 static int __die(const char *str, int err, struct thread_info *thread,
 		 struct pt_regs *regs)
 {
@@ -203,6 +207,9 @@ static int __die(const char *str, int err, struct thread_info *thread,
 
 	print_modules();
 	__show_regs(regs);
+#ifdef CONFIG_MACH_LGE
+        per_cpu(regs_before_stop, raw_smp_processor_id()) = *regs;
+#endif
 	pr_emerg("Process %.*s (pid: %d, stack limit = 0x%p)\n",
 		 TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), thread + 1);
 
@@ -371,6 +378,8 @@ exit:
 	return fn ? fn(regs, instr) : 1;
 }
 
+extern void freeze_l1_dcache(void);
+
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -382,6 +391,9 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 
 	if (call_undef_hook(regs) == 0)
 		return;
+
+	if (!user_mode(regs))
+		freeze_l1_dcache();
 
 	trace_undef_instr(regs, (void *)pc);
 
@@ -419,19 +431,6 @@ static void cntfrq_read_handler(unsigned int esr, struct pt_regs *regs)
 	regs->pc += 4;
 }
 
-static void cntpct_read_handler(unsigned int esr, struct pt_regs *regs)
-{
-	int rt = (esr & ESR_ELx_SYS64_ISS_RT_MASK) >> ESR_ELx_SYS64_ISS_RT_SHIFT;
-
-	isb();
-	if (rt != 31)
-		regs->regs[rt] = arch_counter_get_cntpct();
-	regs->pc += 4;
-}
-
-#define ESR_ELx_SYS64_ISS_SYS_CNTPCT    (ESR_ELx_SYS64_ISS_SYS_VAL(3, 3, 1, 14, 0) | \
-                                         ESR_ELx_SYS64_ISS_DIR_READ)
-
 asmlinkage void __exception do_sysinstr(unsigned int esr, struct pt_regs *regs)
 {
 	if ((esr & ESR_ELx_SYS64_ISS_SYS_OP_MASK) == ESR_ELx_SYS64_ISS_SYS_CNTVCT) {
@@ -439,9 +438,6 @@ asmlinkage void __exception do_sysinstr(unsigned int esr, struct pt_regs *regs)
 		return;
 	} else if ((esr & ESR_ELx_SYS64_ISS_SYS_OP_MASK) == ESR_ELx_SYS64_ISS_SYS_CNTFRQ) {
 		cntfrq_read_handler(esr, regs);
-		return;
-	} else if ((esr & ESR_ELx_SYS64_ISS_SYS_OP_MASK) == ESR_ELx_SYS64_ISS_SYS_CNTPCT) {
-		cntpct_read_handler(esr, regs);
 		return;
 	}
 

@@ -30,9 +30,9 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
 
-#define PARK_LENS_LONG_STEP 7
-#define PARK_LENS_MID_STEP 5
-#define PARK_LENS_SMALL_STEP 3
+#define PARK_LENS_LONG_STEP 5
+#define PARK_LENS_MID_STEP 3
+#define PARK_LENS_SMALL_STEP 1
 #define MAX_QVALUE 4096
 
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
@@ -1029,7 +1029,7 @@ static int32_t msm_actuator_claf_move_focus(
 		}
 	}
 	#endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 	tar_pos = curr_lens_pos;// - 300;// - 512; [Offset]
 #else
     tar_pos = curr_lens_pos - 300;// - 512; [Offset]
@@ -1039,7 +1039,7 @@ static int32_t msm_actuator_claf_move_focus(
 	//pr_err("KSY macro_dac: %d, macro_mech: %d, infinity: %d, curr_lens_pos: %d, tar_pos: %d, a_ctrl->total_steps = %d\n", a_ctrl->region_params[0].macro_dac,
 		//a_ctrl->region_params[0].macro_mecha_end, a_ctrl->region_params[0].infinity_dac, curr_lens_pos, tar_pos, a_ctrl->total_steps);
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 	if(eeprom_slave_id == LGIT_EEPROM_SLAVE_ID){
 	    if(map_ver == 0x01 && cal_ver == 0x02){ // LGIT OLAF Module
 			lgit_imx258_rohm_write_vcm(tar_pos);// + 512); // for bu24235gwl unsigned 10bit
@@ -1209,7 +1209,9 @@ static int32_t msm_actuator_park_lens(struct msm_actuator_ctrl_t *a_ctrl)
 	next_lens_pos = a_ctrl->step_position_table[a_ctrl->curr_step_pos];
 	while (next_lens_pos) {
 		/* conditions which help to reduce park lens time */
-		if (next_lens_pos > (a_ctrl->park_lens.max_step *
+      if (next_lens_pos > (a_ctrl->step_position_table[a_ctrl->total_steps] / 2)) {
+			next_lens_pos = (uint16_t)(a_ctrl->step_position_table[a_ctrl->total_steps] * 1 / 2);
+      } else if (next_lens_pos > (a_ctrl->park_lens.max_step *
 			PARK_LENS_LONG_STEP)) {
 			next_lens_pos = next_lens_pos -
 				(a_ctrl->park_lens.max_step *
@@ -1677,7 +1679,7 @@ static int32_t msm_actuator_claf_set_position(
 
 		//pr_err("macro_dac: %d, infinity: %d, tar_pos: %d, a_ctrl->total_steps = %d\n", a_ctrl->region_params[0].macro_dac,
 		//	a_ctrl->region_params[0].infinity_dac, tar_pos, a_ctrl->total_steps);
-#if defined(CONFIG_MACH_MSM8996_LUCYE)
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 	if(eeprom_slave_id == LGIT_EEPROM_SLAVE_ID){
 	    if(map_ver == 0x01 && cal_ver == 0x02){ // LGIT OLAF Module
 			lgit_imx258_rohm_write_vcm(tar_pos);// + 512); // for bu24235gwl unsigned 10bit

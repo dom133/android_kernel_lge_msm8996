@@ -191,7 +191,7 @@ pr_err("<<<<<<<<<<< DSP : %d // Mode : %d \n",pinfo->dynamic_switch_pending ,pin
 		}
 
 		if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
-			bool out;
+			bool out = false;
 
 			if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
 				out = true;
@@ -506,3 +506,12 @@ end:
 	return 0;
 }
 #endif
+
+int lge_ddic_ops_init(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	int rc = 0;
+
+	pr_info("%s: ddic_ops is not configured\n", __func__);
+
+	return rc;
+}

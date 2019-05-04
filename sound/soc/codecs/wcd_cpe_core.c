@@ -337,6 +337,14 @@ static int wcd_cpe_load_each_segment(struct wcd_cpe_core *core,
 		goto done;
 	}
 
+	if (phdr->p_filesz != split_fw->size) {
+		dev_err(core->dev,
+			"%s: %s size mismatch, phdr_size: 0x%x fw_size: 0x%zx",
+			__func__, split_fname, phdr->p_filesz, split_fw->size);
+		ret = -EINVAL;
+		goto done;
+	}
+
 	segment->cpe_addr = phdr->p_paddr;
 	segment->size = phdr->p_filesz;
 	segment->data = (u8 *) split_fw->data;
@@ -3561,6 +3569,8 @@ static int wcd_cpe_lsm_lab_control(
 
 	pr_debug("%s: enter payload_size = %d Enable %d\n",
 		 __func__, pld_size, enable);
+
+	memset(&cpe_lab_enable, 0, sizeof(cpe_lab_enable));
 
 	if (fill_lsm_cmd_header_v0_inband(&cpe_lab_enable.hdr, session->id,
 		(u8) pld_size, CPE_LSM_SESSION_CMD_SET_PARAMS_V2)) {

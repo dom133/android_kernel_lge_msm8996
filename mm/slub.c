@@ -685,7 +685,9 @@ static void print_trailer(struct kmem_cache *s, struct page *page, u8 *p)
 #ifdef CONFIG_SLUB_DEBUG_PANIC_ON
 static void slab_panic(const char *cause)
 {
-	panic("%s\n", cause);
+	//panic("%s\n", cause);
+	printk("%s, %s\n", __func__, cause);
+	BUG();
 }
 #else
 static inline void slab_panic(const char *cause) {}
@@ -699,7 +701,7 @@ void object_err(struct kmem_cache *s, struct page *page,
 	slab_panic(reason);
 }
 
-static __printf(3, 4) void slab_err(struct kmem_cache *s, struct page *page,
+static void slab_err(struct kmem_cache *s, struct page *page,
 			const char *fmt, ...)
 {
 	va_list args;
@@ -848,8 +850,8 @@ static int slab_pad_check(struct kmem_cache *s, struct page *page)
 	while (end > fault && end[-1] == POISON_INUSE)
 		end--;
 
-	slab_err(s, page, "Padding overwritten. 0x%p-0x%p", fault, end - 1);
 	print_section("Padding ", end - remainder, remainder);
+	slab_err(s, page, "Padding overwritten. 0x%p-0x%p", fault, end - 1);
 
 	restore_bytes(s, "slab padding", POISON_INUSE, end - remainder, end);
 	return 0;

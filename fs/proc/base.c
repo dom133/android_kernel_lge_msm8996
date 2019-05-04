@@ -76,7 +76,6 @@
 #include <linux/printk.h>
 #include <linux/cgroup.h>
 #include <linux/cpuset.h>
-#include <linux/cpufreq.h>
 #include <linux/audit.h>
 #include <linux/poll.h>
 #include <linux/nsproxy.h>
@@ -95,8 +94,6 @@
 #include "internal.h"
 #include "fd.h"
 
-#include "../../lib/kstrtox.h"
-
 /* NOTE:
  *	Implementing inode permission operations in /proc is almost
  *	certainly an error.  Permission checks need to happen during
@@ -107,6 +104,9 @@
  *	in /proc for a task before it execs a suid executable.
  */
 
+#ifdef CONFIG_HSWAP
+struct timespec ts;
+#endif
 struct pid_entry {
 	const char *name;
 	int len;
@@ -992,7 +992,33 @@ static ssize_t oom_score_adj_write(struct file *file, const char __user *buf,
 		goto err_sighand;
 	}
 
+#ifdef CONFIG_HSWAP
+	if (!task->signal->oom_score_adj) {
+		long diff_time;
+		long diff_time_ms;
+
+		diff_time = ((long)jiffies - (long)task->signal->before_time);
+		task->signal->top_time += diff_time;
+		diff_time_ms = diff_time * ((MSEC_PER_SEC) / HZ);
+		if (diff_time_ms > 3000) {
+			task->signal->top_count++;
+			task->signal->reclaimed = 0;
+		}
+
+		/* quicksearchbox do not count on top activity */
+		if (diff_time_ms > 3000 && strncmp(task->comm, "earchbox:search", 15) == 0) {
+			task->signal->top_time -= diff_time;
+		}
+	}
+#endif
+
 	task->signal->oom_score_adj = (short)oom_score_adj;
+
+#ifdef CONFIG_HSWAP
+	if (!task->signal->oom_score_adj)
+		task->signal->before_time = (long)jiffies;
+#endif
+
 	if (has_capability_noaudit(current, CAP_SYS_RESOURCE))
 		task->signal->oom_score_adj_min = (short)oom_score_adj;
 	trace_oom_score_adj_update(task);
@@ -1849,33 +1875,8 @@ end_instantiate:
 static int dname_to_vma_addr(struct dentry *dentry,
 			     unsigned long *start, unsigned long *end)
 {
-	const char *str = dentry->d_name.name;
-	unsigned long long sval, eval;
-	unsigned int len;
-
-	len = _parse_integer(str, 16, &sval);
-	if (len & KSTRTOX_OVERFLOW)
+	if (sscanf(dentry->d_name.name, "%lx-%lx", start, end) != 2)
 		return -EINVAL;
-	if (sval != (unsigned long)sval)
-		return -EINVAL;
-	str += len;
-
-	if (*str != '-')
-		return -EINVAL;
-	str++;
-
-	len = _parse_integer(str, 16, &eval);
-	if (len & KSTRTOX_OVERFLOW)
-		return -EINVAL;
-	if (eval != (unsigned long)eval)
-		return -EINVAL;
-	str += len;
-
-	if (*str != '\0')
-		return -EINVAL;
-
-	*start = sval;
-	*end = eval;
 
 	return 0;
 }
@@ -2761,6 +2762,17 @@ static int proc_pid_personality(struct seq_file *m, struct pid_namespace *ns,
 	return err;
 }
 
+#ifdef CONFIG_HSWAP
+static int proc_hswap_factors(struct seq_file *m, struct pid_namespace *ns,
+		struct pid *pid, struct task_struct *task)
+{
+	return seq_printf(m, "task(%s) top time = %ld, top count = %d\n",
+			task->comm,
+			task->signal->top_time,
+			task->signal->top_count);
+}
+#endif
+
 /*
  * Thread groups
  */
@@ -2846,8 +2858,11 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("cgroup",  S_IRUGO, proc_cgroup_show),
 #endif
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
-	REG("oom_adj",    S_IRUGO|S_IWUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_adj",    S_IRUSR, proc_oom_adj_operations),
+	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+#ifdef CONFIG_HSWAP
+	ONE("show_hswap_factor", S_IRUSR, proc_hswap_factors),
+#endif
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -2872,11 +2887,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	REG("timers",	  S_IRUGO, proc_timers_operations),
-#endif
-#ifdef CONFIG_CPU_FREQ_STAT
-	ONE("time_in_state", 0444, proc_time_in_state_show),
-	ONE("concurrent_active_time", 0444, proc_concurrent_active_time_show),
-	ONE("concurrent_policy_time", 0444, proc_concurrent_policy_time_show),
 #endif
 };
 
@@ -3236,8 +3246,11 @@ static const struct pid_entry tid_base_stuff[] = {
 	ONE("cgroup",  S_IRUGO, proc_cgroup_show),
 #endif
 	ONE("oom_score", S_IRUGO, proc_oom_score),
-	REG("oom_adj",   S_IRUGO|S_IWUSR, proc_oom_adj_operations),
-	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_adj",   S_IRUSR, proc_oom_adj_operations),
+	REG("oom_score_adj", S_IRUSR, proc_oom_score_adj_operations),
+#ifdef CONFIG_HSWAP
+	ONE("show_hswap_factor", S_IRUSR, proc_hswap_factors),
+#endif
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",  S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -3256,11 +3269,6 @@ static const struct pid_entry tid_base_stuff[] = {
 	REG("gid_map",    S_IRUGO|S_IWUSR, proc_gid_map_operations),
 	REG("projid_map", S_IRUGO|S_IWUSR, proc_projid_map_operations),
 	REG("setgroups",  S_IRUGO|S_IWUSR, proc_setgroups_operations),
-#endif
-#ifdef CONFIG_CPU_FREQ_STAT
-	ONE("time_in_state", 0444, proc_time_in_state_show),
-	ONE("concurrent_active_time", 0444, proc_concurrent_active_time_show),
-	ONE("concurrent_policy_time", 0444, proc_concurrent_policy_time_show),
 #endif
 };
 

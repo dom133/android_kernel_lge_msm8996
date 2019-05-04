@@ -92,6 +92,22 @@ static bool is_el1_instruction_abort(unsigned int esr)
 /*
  * The kernel tried to access some page that wasn't present.
  */
+void freeze_l1_dcache(void)
+{
+	u32 val;
+	asm volatile(
+	" isb\n"
+	" mrs %0, S3_2_C15_C15_0"
+	:"=r"(val));
+
+	val |= (0x3 << 11);
+
+	asm volatile(
+	" msr S3_2_C15_C15_0, %0\n"
+	" isb\n"
+	::"r"(val));
+
+}
 static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 			      unsigned int esr, struct pt_regs *regs)
 {
@@ -102,6 +118,7 @@ static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 	if (!is_el1_instruction_abort(esr) && fixup_exception(regs))
 		return;
 
+	freeze_l1_dcache();
 	/*
 	 * No handler, we'll have to terminate things with extreme prejudice.
 	 */
@@ -260,8 +277,10 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 		if (is_el1_instruction_abort(esr))
 			die("Attempting to execute userspace memory", regs, esr);
 
-		if (!search_exception_tables(regs->pc))
+		if (!search_exception_tables(regs->pc)){
+			freeze_l1_dcache();
 			panic("Accessing user space memory outside uaccess.h routines");
+		}
 	}
 
 	/*
@@ -513,6 +532,22 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	info.si_code  = inf->code;
 	info.si_addr  = (void __user *)addr;
 	arm64_notify_die("", regs, &info, esr);
+}
+
+asmlinkage void __exception do_el0_ia_bp_hardening(unsigned long addr,
+						   unsigned int esr,
+						   struct pt_regs *regs)
+{
+	/*
+	 * We've taken an instruction abort from userspace and not yet
+	 * re-enabled IRQs. If the address is a kernel address, apply
+	 * BP hardening prior to enabling IRQs and pre-emption.
+	 */
+	if (addr > TASK_SIZE)
+		arm64_apply_bp_hardening();
+
+	local_irq_enable();
+	do_mem_abort(addr, esr, regs);
 }
 
 /*

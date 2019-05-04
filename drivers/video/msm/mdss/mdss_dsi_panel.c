@@ -23,8 +23,6 @@
 #include <linux/err.h>
 #include <linux/string.h>
 
-#include <linux/display_state.h>
-
 #include "mdss_dsi.h"
 #ifdef TARGET_HW_MDSS_HDMI
 #include "mdss_dba_utils.h"
@@ -36,6 +34,7 @@
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
 #include "lge/lge_mdss_display.h"
 #include <soc/qcom/lge/board_lge.h>
+#include <linux/lge_panel_notify.h>
 extern int panel_not_connected;
 int detect_factory_cable(void);
 #endif
@@ -63,13 +62,6 @@ struct mdss_panel_data *pdata_base;
 #define VSYNC_DELAY msecs_to_jiffies(17)
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
-
-bool display_on = true;
-
-bool is_display_on()
-{
-	return display_on;
-}
 
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -606,6 +598,7 @@ static void mdss_dsi_panel_set_idle_mode(struct mdss_panel_data *pdata,
 							bool enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	struct mdss_panel_info *pinfo;
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -615,7 +608,19 @@ static void mdss_dsi_panel_set_idle_mode(struct mdss_panel_data *pdata,
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 						panel_data);
 
+	pinfo = &(ctrl->panel_data.panel_info);
 	pr_debug("%s: Idle (%d->%d)\n", __func__, ctrl->idle, enable);
+
+#if defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
+	if (enable) {
+		LGE_DDIC_OP(ctrl, send_u2_cmds);
+		lge_panel_notifier_call_chain(LGE_PANEL_EVENT_BLANK, 0, LGE_PANEL_STATE_LP2);
+	} else {
+		pinfo->panel_power_state = MDSS_PANEL_POWER_ON;
+		lge_send_extra_cmds_by_name(ctrl, "u3");
+		lge_panel_notifier_call_chain(LGE_PANEL_EVENT_BLANK, 0, LGE_PANEL_STATE_UNBLANK);
+	}
+#else
 
 	if (ctrl->idle == enable)
 		return;
@@ -635,6 +640,7 @@ static void mdss_dsi_panel_set_idle_mode(struct mdss_panel_data *pdata,
 			pr_debug("Idle off\n");
 		}
 	}
+#endif
 }
 
 static bool mdss_dsi_panel_get_idle_mode(struct mdss_panel_data *pdata)
@@ -1241,6 +1247,24 @@ static void mdss_dsi_panel_switch_mode(struct mdss_panel_data *pdata,
 		mdss_dsi_panel_dsc_pps_send(ctrl_pdata, &pdata->panel_info);
 }
 
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+int lge_set_fsc(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
+{
+	struct led_classdev *led_cdev;
+	int rc = 0;
+
+	read_lock(&bl_led_trigger->leddev_list_lock);
+	list_for_each_entry(led_cdev, &bl_led_trigger->led_cdevs, trig_list)
+	{
+		if(led_cdev->set_fsc)
+			led_cdev->set_fsc(led_cdev, ctrl_pdata->lge_extra.fsc_req);
+	}
+	read_unlock(&bl_led_trigger->leddev_list_lock);
+
+	return rc;
+}
+#endif
+
 static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 							u32 bl_level)
 {
@@ -1269,6 +1293,20 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 
 	switch (ctrl_pdata->bklt_ctrl) {
 	case BL_WLED:
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_USE_FSC)
+		if(ctrl_pdata->lge_extra.use_u2_fsc) {
+			if (pdata->panel_info.panel_power_state == MDSS_PANEL_POWER_LP1 ||
+					pdata->panel_info.panel_power_state == MDSS_PANEL_POWER_LP2)
+				ctrl_pdata->lge_extra.fsc_req = ctrl_pdata->lge_extra.fsc_u2;
+			else
+				ctrl_pdata->lge_extra.fsc_req = ctrl_pdata->lge_extra.fsc_u3;
+
+			if (ctrl_pdata->lge_extra.fsc_req != ctrl_pdata->lge_extra.fsc_old) {
+				lge_set_fsc(ctrl_pdata);
+				ctrl_pdata->lge_extra.fsc_old = ctrl_pdata->lge_extra.fsc_req;
+			}
+		}
+#endif
 		led_trigger_event(bl_led_trigger, bl_level);
 		break;
 	case BL_PWM:
@@ -1342,9 +1380,6 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		return -EINVAL;
 	}
 
-
-	display_on = true;
-
 	pinfo = &pdata->panel_info;
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -1365,11 +1400,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("%s: ndx=%d cmd_cnt=%d\n", __func__,
 				ctrl->ndx, on_cmds->cmd_cnt);
 
-	if (on_cmds->cmd_cnt) {
+	if (on_cmds->cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, on_cmds, CMD_REQ_COMMIT);
-		/* make sure panel is initialized with backlight off */
-		mdss_dsi_panel_bklt_dcs(ctrl, pinfo->bl_off);
-	}
 
 	if (pinfo->compression_mode == COMPRESSION_DSC)
 		mdss_dsi_panel_dsc_pps_send(ctrl, pinfo);
@@ -1485,7 +1517,6 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds, CMD_REQ_COMMIT);
 
 	mdss_dsi_panel_off_hdmi(ctrl, pinfo);
-	display_on = false;
 
 end:
 	/* clear idle state */
@@ -2841,7 +2872,6 @@ int mdss_dsi_panel_timing_switch(struct mdss_dsi_ctrl_pdata *ctrl,
 #endif
 #if defined(CONFIG_LGE_ENHANCE_GALLERY_SHARPNESS)
 	ctrl->sharpness_on_cmds = pt->sharpness_on_cmds;
-	ctrl->ce_on_cmds = pt->ce_on_cmds;
 #endif
 #if defined(CONFIG_LGE_LCD_DYNAMIC_CABC_MIE_CTRL)
 	ctrl->ie_on_cmds = pt->ie_on_cmds;
@@ -3041,9 +3071,6 @@ static int  mdss_dsi_panel_config_res_properties(struct device_node *np,
 	mdss_dsi_parse_dcs_cmds(np, &pt->sharpness_on_cmds,
 		"qcom,mdss-dsi-sharpness-on-command",
 		"qcom,mdss-dsi-common-hs-command-state");
-	mdss_dsi_parse_dcs_cmds(np, &pt->ce_on_cmds,
-		"qcom,mdss-dsi-ce-on-command",
-		"qcom,mdss-dsi-common-hs-command-state");
 #endif
 #if defined(CONFIG_LGE_LCD_DYNAMIC_CABC_MIE_CTRL)
 	mdss_dsi_parse_dcs_cmds(np, &pt->ie_on_cmds,
@@ -3129,24 +3156,19 @@ static int mdss_panel_parse_display_timings(struct device_node *np,
 
 	timings_np = of_get_child_by_name(np, "qcom,mdss-dsi-display-timings");
 	if (!timings_np) {
-		struct dsi_panel_timing *pt;
-
-		pt = kzalloc(sizeof(*pt), GFP_KERNEL);
-		if (!pt)
-			return -ENOMEM;
+		struct dsi_panel_timing pt;
+		memset(&pt, 0, sizeof(struct dsi_panel_timing));
 
 		/*
 		 * display timings node is not available, fallback to reading
 		 * timings directly from root node instead
 		 */
 		pr_debug("reading display-timings from panel node\n");
-		rc = mdss_dsi_panel_timing_from_dt(np, pt, panel_data);
+		rc = mdss_dsi_panel_timing_from_dt(np, &pt, panel_data);
 		if (!rc) {
-			mdss_dsi_panel_config_res_properties(np, pt,
+			mdss_dsi_panel_config_res_properties(np, &pt,
 					panel_data, true);
-			rc = mdss_dsi_panel_timing_switch(ctrl, &pt->timing);
-		} else {
-			kfree(pt);
+			rc = mdss_dsi_panel_timing_switch(ctrl, &pt.timing);
 		}
 		return rc;
 	}
@@ -3302,10 +3324,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-bl-max-level", &tmp);
 	pinfo->bl_max = (!rc ? tmp : 255);
 	ctrl_pdata->bklt_max = pinfo->bl_max;
-
-#if defined(CONFIG_LGE_DISPLAY_COMMON)
-	lge_mdss_panel_parse_dt_blmaps(np, ctrl_pdata);
-#endif
 
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-interleave-mode", &tmp);
 	pinfo->mipi.interleave_mode = (!rc ? tmp : 0);
@@ -3473,10 +3491,6 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	mdss_dsi_parse_dfps_config(np, ctrl_pdata);
 
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	lge_mdss_panel_parse_dt_extra(np, ctrl_pdata);
-#endif
-
 	rc = mdss_panel_parse_dt_hdmi(np, ctrl_pdata);
 	if (rc)
 		goto error;
@@ -3513,7 +3527,19 @@ int mdss_dsi_panel_init(struct device_node *node,
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
 
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
-		if (strncmp(panel_name, "LGD SIC LG4945", 14) == 0) {
+		if (strncmp(panel_name, "SW49410 1440 3120 cmd", 21) == 0) {
+			pr_info("%s: panel_type is LGD_SIC_LG49410_1440_3120_INCELL_CMD_PANEL\n",
+					__func__);
+			pinfo->panel_type = LGD_SIC_LG49410_1440_3120_INCELL_CMD_PANEL;
+		} else if (strncmp(panel_name, "SW49410 1080 2340 cmd", 21) == 0) {
+			pr_info("%s: panel_type is LGD_SIC_LG49410_1080_2340_INCELL_CMD_PANEL\n",
+					__func__);
+			pinfo->panel_type = LGD_SIC_LG49410_1080_2340_INCELL_CMD_PANEL;
+		} else if (strncmp(panel_name, "SW49410 720 1560 cmd", 20) == 0) {
+			pr_info("%s: panel_type is LGD_SIC_LG49410_720_1560_INCELL_CMD_PANEL\n",
+					__func__);
+			pinfo->panel_type = LGD_SIC_LG49410_720_1560_INCELL_CMD_PANEL;
+		} else if (strncmp(panel_name, "LGD SIC LG4945", 14) == 0) {
 			pr_err("%s: panel_type is LGD_SIC_LG4945_INCELL_CMD_PANEL\n",
 					__func__);
 			pinfo->panel_type = LGD_SIC_LG4945_INCELL_CMD_PANEL;
@@ -3574,6 +3600,12 @@ int mdss_dsi_panel_init(struct device_node *node,
 			mdss_dsi_panel_apply_display_setting;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;
 	ctrl_pdata->panel_data.get_idle = mdss_dsi_panel_get_idle_mode;
+#if defined(CONFIG_LGE_DISPLAY_COMMON)
+	rc = lge_mdss_dsi_panel_init(node, ctrl_pdata);
+	if (rc) {
+		pr_err("%s: fail to init lge panel features\n", __func__);
+	}
+#endif
 #if defined(CONFIG_LGE_LCD_DYNAMIC_CABC_MIE_CTRL)
 	ctrl_pdata->ie_on = 1;
 #endif

@@ -1871,10 +1871,8 @@ static ssize_t fuse_dev_do_write(struct fuse_conn *fc,
 
 	err = copy_out_args(cs, &req->out, nbytes);
 	if (req->in.h.opcode == FUSE_CANONICAL_PATH) {
-		char *path = (char *)req->out.args[0].value;
-
-		path[req->out.args[0].size - 1] = 0;
-		req->out.h.error = kern_path(path, 0, req->canonical_path);
+		req->out.h.error = kern_path((char *)req->out.args[0].value, 0,
+							req->canonical_path);
 	}
 	fuse_copy_finish(cs);
 
@@ -1927,14 +1925,11 @@ static ssize_t fuse_dev_splice_write(struct pipe_inode_info *pipe,
 	if (!fc)
 		return -EPERM;
 
-	pipe_lock(pipe);
-
 	bufs = kmalloc(pipe->buffers * sizeof(struct pipe_buffer), GFP_KERNEL);
-	if (!bufs) {
-		pipe_unlock(pipe);
+	if (!bufs)
 		return -ENOMEM;
-	}
 
+	pipe_lock(pipe);
 	nbuf = 0;
 	rem = 0;
 	for (idx = 0; idx < pipe->nrbufs && rem < len; idx++)

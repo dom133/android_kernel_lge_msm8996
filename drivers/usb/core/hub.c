@@ -44,11 +44,9 @@ bool alice_friends_hm_earjack;
 #ifdef CONFIG_LGE_DP_ANX7688
 unsigned int det_vendor_id;
 unsigned int det_product_id;
-#define APPLE_VID       0x05ac
-#define APPLE_PID       0x100e
+#define APPLE_VID	0x05ac
+#define APPLE_PID	0x100e
 #endif
-extern int deny_new_usb;
-
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->dev.sem, except that ->state can
  * change to USB_STATE_NOTATTACHED even when the semaphore isn't held. */
@@ -642,17 +640,12 @@ void usb_wakeup_notification(struct usb_device *hdev,
 		unsigned int portnum)
 {
 	struct usb_hub *hub;
-	struct usb_port *port_dev;
 
 	if (!hdev)
 		return;
 
 	hub = usb_hub_to_struct_hub(hdev);
 	if (hub) {
-		port_dev = hub->ports[portnum - 1];
-		if (port_dev && port_dev->child)
-			pm_wakeup_event(&port_dev->child->dev, 0);
-
 		set_bit(portnum, hub->wakeup_bits);
 		kick_hub_wq(hub);
 	}
@@ -1038,7 +1031,7 @@ int usb_remove_device(struct usb_device *udev)
 	hub_port_logical_disconnect(hub, udev->portnum);
 	usb_autopm_put_interface(intf);
 #ifdef CONFIG_LGE_DP_ANX7688
-        det_vendor_id = det_product_id = 0x0000;
+	det_vendor_id = det_product_id = 0x0000;
 #endif
 	return 0;
 }
@@ -1217,14 +1210,10 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 
 		if (!udev || udev->state == USB_STATE_NOTATTACHED) {
 			/* Tell hub_wq to disconnect the device or
-			 * check for a new connection or over current condition.
-			 * Based on USB2.0 Spec Section 11.12.5,
-			 * C_PORT_OVER_CURRENT could be set while
-			 * PORT_OVER_CURRENT is not. So check for any of them.
+			 * check for a new connection
 			 */
 			if (udev || (portstatus & USB_PORT_STAT_CONNECTION) ||
-			    (portstatus & USB_PORT_STAT_OVERCURRENT) ||
-			    (portchange & USB_PORT_STAT_C_OVERCURRENT))
+			    (portstatus & USB_PORT_STAT_OVERCURRENT))
 				set_bit(port1, hub->change_bits);
 
 		} else if (portstatus & USB_PORT_STAT_ENABLE) {
@@ -1592,17 +1581,16 @@ static int hub_configure(struct usb_hub *hub,
 					"insufficient power available "
 					"to use all downstream ports\n");
 #ifdef CONFIG_LGE_USB_G_ANDROID
-                /*We don't need to allow unit_load each port,
-                 * allow that remaining variable current divide by maxchild.
-                 */
-                if (maxchild == 0 || remaining < unit_load)
-                        hub->mA_per_port = unit_load;
-                else
-                        hub->mA_per_port = remaining / maxchild;
+		/*We don't need to allow unit_load each port,
+		 * allow that remaining variable current divide by maxchild.
+		 */
+		if (maxchild == 0 || remaining < unit_load)
+			hub->mA_per_port = unit_load;
+		else
+			hub->mA_per_port = remaining / maxchild;
 #else
-                hub->mA_per_port = unit_load;   /* 7.2.1 */
+		hub->mA_per_port = unit_load;	/* 7.2.1 */
 #endif
-
 	} else {	/* Self-powered external hub */
 		/* FIXME: What about battery-powered external hubs that
 		 * provide less current per port? */
@@ -2187,14 +2175,14 @@ void usb_disconnect(struct usb_device **pdev)
 	int port1 = 1;
 
 #ifdef CONFIG_LGE_ALICE_FRIENDS
-        if (udev->product) {
-               if (!strcmp(udev->product, "HM")) {
-                       if (IS_ALICE_FRIENDS_HM_ON())
-                               alice_friends_hm_reset();
+	if (udev->product) {
+	       if (!strcmp(udev->product, "HM")) {
+		       if (IS_ALICE_FRIENDS_HM_ON())
+			       alice_friends_hm_reset();
 
-                       alice_friends_hm_earjack = false;
-               }
-        }
+		       alice_friends_hm_earjack = false;
+	       }
+	}
 #endif
 
 	/* mark the device as inactive, so any further urb submissions for
@@ -2289,11 +2277,11 @@ static inline void announce_device(struct usb_device *udev) { }
 #ifdef CONFIG_LGE_DP_ANX7688
 bool get_device_apple_pid(void)
 {
-        if (det_vendor_id == APPLE_VID &&
-                        det_product_id == APPLE_PID)
-                return true;
+	if (det_vendor_id == APPLE_VID &&
+			det_product_id == APPLE_PID)
+		return true;
 
-        return false;
+	return false;
 }
 EXPORT_SYMBOL_GPL(get_device_apple_pid);
 #endif
@@ -2525,12 +2513,11 @@ int usb_new_device(struct usb_device *udev)
 	/* Tell the world! */
 	announce_device(udev);
 #ifdef CONFIG_LGE_DP_ANX7688
-        if (udev->speed == USB_SPEED_SUPER) {
-                det_vendor_id = le16_to_cpu(udev->descriptor.idVendor);
-                det_product_id = le16_to_cpu(udev->descriptor.idProduct);
-        }
+	if (udev->speed == USB_SPEED_SUPER) {
+		det_vendor_id = le16_to_cpu(udev->descriptor.idVendor);
+		det_product_id = le16_to_cpu(udev->descriptor.idProduct);
+	}
 #endif
-
 	if (udev->serial)
 		add_device_randomness(udev->serial, strlen(udev->serial));
 	if (udev->product)
@@ -2738,8 +2725,15 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 		if (ret < 0)
 			return ret;
 
-		/* The port state is unknown until the reset completes. */
-		if (!(portstatus & USB_PORT_STAT_RESET))
+		/*
+		 * The port state is unknown until the reset completes.
+		 *
+		 * On top of that, some chips may require additional time
+		 * to re-establish a connection after the reset is complete,
+		 * so also wait for the connection to be re-established.
+		 */
+		if (!(portstatus & USB_PORT_STAT_RESET) &&
+		    (portstatus & USB_PORT_STAT_CONNECTION))
 			break;
 
 		/* switch to the long delay after two short delay failures */
@@ -2761,16 +2755,13 @@ static int hub_port_wait_reset(struct usb_hub *hub, int port1,
 	if (!(portstatus & USB_PORT_STAT_CONNECTION))
 		return -ENOTCONN;
 
-	/* Retry if connect change is set but status is still connected.
-	 * A USB 3.0 connection may bounce if multiple warm resets were issued,
+	/* bomb out completely if the connection bounced.  A USB 3.0
+	 * connection may bounce if multiple warm resets were issued,
 	 * but the device may have successfully re-connected. Ignore it.
 	 */
 	if (!hub_is_superspeed(hub->hdev) &&
-	    (portchange & USB_PORT_STAT_C_CONNECTION)) {
-		usb_clear_port_feature(hub->hdev, port1,
-				       USB_PORT_FEAT_C_CONNECTION);
-		return -EAGAIN;
-	}
+			(portchange & USB_PORT_STAT_C_CONNECTION))
+		return -ENOTCONN;
 
 	if (!(portstatus & USB_PORT_STAT_ENABLE))
 		return -EBUSY;
@@ -3395,10 +3386,6 @@ static int wait_for_ss_port_enable(struct usb_device *udev,
 	while (delay_ms < 2000) {
 		if (status || *portstatus & USB_PORT_STAT_CONNECTION)
 			break;
-		if (!port_is_power_on(hub, *portstatus)) {
-			status = -ENODEV;
-			break;
-		}
 		msleep(20);
 		delay_ms += 20;
 		status = hub_port_status(hub, *port1, portstatus, portchange);
@@ -3461,11 +3448,8 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 
 	/* Skip the initial Clear-Suspend step for a remote wakeup */
 	status = hub_port_status(hub, port1, &portstatus, &portchange);
-	if (status == 0 && !port_is_suspended(hub, portstatus)) {
-		if (portchange & USB_PORT_STAT_C_SUSPEND)
-			pm_wakeup_event(&udev->dev, 0);
+	if (status == 0 && !port_is_suspended(hub, portstatus))
 		goto SuspendCleared;
-	}
 
 	/* see 7.1.7.7; affects power usage, but not budgeting */
 	if (hub_is_superspeed(hub->hdev))
@@ -4752,12 +4736,6 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 			goto done;
 		return;
 	}
-
-	if (deny_new_usb) {
-		dev_err(&port_dev->dev, "denied insert of USB device on port %d\n", port1);
-		goto done;
-	}
-
 	if (hub_is_superspeed(hub->hdev))
 		unit_load = 150;
 	else
@@ -4802,7 +4780,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 
 		usb_detect_quirks(udev);
 		if (udev->quirks & USB_QUIRK_DELAY_INIT)
-			msleep(2000);
+			msleep(1000);
 
 		/* consecutive bus-powered hubs aren't reliable; they can
 		 * violate the voltage drop budget.  if the new child has
@@ -4896,15 +4874,6 @@ loop:
 		usb_put_dev(udev);
 		if ((status == -ENOTCONN) || (status == -ENOTSUPP))
 			break;
-
-		/* When halfway through our retry count, power-cycle the port */
-		if (i == (SET_CONFIG_TRIES / 2) - 1) {
-			dev_info(&port_dev->dev, "attempt power cycle\n");
-			usb_hub_set_port_power(hdev, hub, port1, false);
-			msleep(2 * hub_power_on_good_delay(hub));
-			usb_hub_set_port_power(hdev, hub, port1, true);
-			msleep(hub_power_on_good_delay(hub));
-		}
 	}
 	if (hub->hdev->parent ||
 			!hcd->driver->port_handed_over ||

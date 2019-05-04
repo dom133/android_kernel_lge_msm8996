@@ -187,7 +187,7 @@ static ssize_t pn547_dev_read(struct file *filp, char __user *buf,
 {
     struct pn547_dev *pn547_dev = filp->private_data;
     static char tmp[MAX_BUFFER_SIZE];
-    int ret;
+    int ret = 0;
     static bool isFirstPacket = true;
     unsigned long flags;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -46,8 +46,10 @@
 #define LPASS_BE_SEC_MI2S_TX "SEC_MI2S_TX"
 #define LPASS_BE_PRI_MI2S_RX "PRI_MI2S_RX"
 #define LPASS_BE_PRI_MI2S_TX "PRI_MI2S_TX"
-#define LPASS_BE_TERT_MI2S_RX "TERTIARY_MI2S_RX"
-#define LPASS_BE_TERT_MI2S_TX "TERTIARY_MI2S_TX"
+#define LPASS_BE_TERT_MI2S_RX "TERT_MI2S_RX"
+#define LPASS_BE_TERT_MI2S_TX "TERT_MI2S_TX"
+//#define LPASS_BE_TERT_MI2S_TX "TERTIARY_MI2S_TX"
+//#define LPASS_BE_TERT_MI2S_RX "TERTIARY_MI2S_RX"
 #define LPASS_BE_AUDIO_I2S_RX "AUDIO_I2S_RX"
 #define LPASS_BE_STUB_RX "STUB_RX"
 #define LPASS_BE_STUB_TX "STUB_TX"
@@ -414,8 +416,4 @@ void msm_pcm_routing_reg_stream_app_type_cfg(int fedai_id, int app_type,
 			int acdb_dev_id, int sample_rate, int session_type);
 int msm_pcm_routing_get_stream_app_type_cfg(int fedai_id, int session_type,
 			int *app_type, int *acdb_dev_id, int *sample_rate);
-int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
-				int op_channel_cnt, int *ch_wght_coeff,
-				int session_type, bool use_default_chmap,
-				char *channel_map);
 #endif /*_MSM_PCM_H*/

@@ -42,6 +42,7 @@
 #include <soc/qcom/lge/board_lge.h>
 #include <linux/regulator/driver.h>
 #include <linux/input/lge_touch_notify.h>
+#include <linux/lge_panel_notify.h>
 int panel_not_connected;
 int skip_lcd_error_check;
 int laf_mode_check;
@@ -49,6 +50,7 @@ int laf_mode_check;
 
 #ifdef CONFIG_LGE_DISPLAY_COMMON
 #include "lge/lge_mdss_display.h"
+extern void lge_mdss_post_dsi_event_handler(struct mdss_dsi_ctrl_pdata *ctrl, int event, void *arg);
 #endif
 
 #if defined(CONFIG_LGE_DISPLAY_MFTS_DET_SUPPORTED) && !defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
@@ -409,9 +411,14 @@ pr_err("<<<<<<<<<<<<<<<<<< splash : %d lp11	: %d \n", pdata->panel_info.cont_spl
 static int mdss_dsi_panel_power_lp(struct mdss_panel_data *pdata, int enable)
 {
 	/* Panel power control when entering/exiting lp mode */
+#if	defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
+	return !enable;
+#else
 	return 0;
+#endif
 }
 
+#if	!defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
 static int mdss_dsi_panel_power_ulp(struct mdss_panel_data *pdata,
 					int enable)
 {
@@ -461,11 +468,15 @@ static int mdss_dsi_panel_power_ulp(struct mdss_panel_data *pdata,
 	}
 	return ret;
 }
-
+#endif
 int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 	int power_state)
 {
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
 	int ret = 0;
+#else
+	int ret;
+#endif
 	struct mdss_panel_info *pinfo;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
@@ -512,10 +523,13 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 			ret = mdss_dsi_panel_power_off(pdata);
 		break;
 	case MDSS_PANEL_POWER_ON:
+#if !defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
 		if (mdss_dsi_is_panel_on_ulp(pdata)) {
 			ret = mdss_dsi_panel_power_ulp(pdata, false);
 			goto end;
-		} else if (mdss_dsi_is_panel_on_lp(pdata)) {
+		} else
+#endif
+		if (mdss_dsi_is_panel_on_lp(pdata)) {
 			ret = mdss_dsi_panel_power_lp(pdata, false);
 			goto end;
 		} else {
@@ -531,9 +545,11 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 		}
 		break;
 	case MDSS_PANEL_POWER_LP1:
+#if !defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
 		if (mdss_dsi_is_panel_on_ulp(pdata))
 			ret = mdss_dsi_panel_power_ulp(pdata, false);
 		else
+#endif
 			ret = mdss_dsi_panel_power_lp(pdata, true);
 		/*
 		 * temp workaround until framework issues pertaining to LP2
@@ -543,8 +559,12 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 		 */
 		break;
 	case MDSS_PANEL_POWER_LP2:
+#if defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
+		ret = mdss_dsi_panel_power_lp(pdata, true);
+#else
 		if (!ctrl_pdata->core_power)
 			ret = mdss_dsi_panel_power_ulp(pdata, true);
+#endif
 		break;
 	default:
 		pr_err("%s: unknown panel power state requested (%d)\n",
@@ -554,6 +574,7 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 
 	if (!ret)
 		pinfo->panel_power_state = power_state;
+
 end:
 	return ret;
 }
@@ -1541,6 +1562,13 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 		goto end;
 	}
 
+#if defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
+	if (mdss_dsi_is_panel_on_lp(pdata)) {
+		pr_info("%s: panel already on (lp state)\n", __func__);
+		goto end;
+	}
+#endif
+
 	ret = mdss_dsi_panel_power_ctrl(pdata, MDSS_PANEL_POWER_ON);
 	if (ret) {
 		pr_err("%s:Panel power on failed. rc=%d\n", __func__, ret);
@@ -1774,8 +1802,6 @@ error:
 				  MDSS_DSI_ALL_CLKS, MDSS_DSI_CLK_OFF);
 
 	mdss_dsi_pm_qos_update_request(DSI_ENABLE_PC_LATENCY);
-
-	pr_debug("%s-:\n", __func__);
 
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
 	pr_err("[Display] %s-:\n", __func__);
@@ -2821,6 +2847,7 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		break;
 	case MDSS_EVENT_PANEL_OFF:
 		power_state = (int) (unsigned long) arg;
+		disable_esd_thread();
 		ctrl_pdata->ctrl_state &= ~CTRL_STATE_MDP_ACTIVE;
 		if (ctrl_pdata->off_cmds.link_state == DSI_LP_MODE)
 			rc = mdss_dsi_blank(pdata, power_state);
@@ -2920,6 +2947,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		break;
 	}
 	pr_debug("%s-:event=%d, rc=%d\n", __func__, event, rc);
+#ifdef CONFIG_LGE_DISPLAY_COMMON
+	lge_mdss_post_dsi_event_handler(ctrl_pdata, event, arg);
+#endif
 	return rc;
 #if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED) && defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
 notify:
@@ -3058,7 +3088,7 @@ static struct device_node *mdss_dsi_find_panel_of_node(
 				panel_name[i] = *(str1 + i);
 			panel_name[i] = 0;
 		}
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
+#if defined(CONFIG_LGE_DISPLAY_COMMON)
 		panel_not_connected = lge_get_lk_panel_status();
 		laf_mode_check = strcmp(lge_get_boot_partition(), "laf");
 		if ((panel_not_connected && !laf_mode_check  && !lge_get_mfts_mode())) {
@@ -3119,7 +3149,7 @@ static struct device_node *mdss_dsi_config_panel(struct platform_device *pdev,
 	int ndx)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = platform_get_drvdata(pdev);
-	char panel_cfg[MDSS_MAX_PANEL_LEN + 1];
+	char panel_cfg[MDSS_MAX_PANEL_LEN];
 	struct device_node *dsi_pan_node = NULL;
 	int rc = 0;
 
@@ -4025,9 +4055,6 @@ static int mdss_dsi_ctrl_remove(struct platform_device *pdev)
 		pr_err("%s: failed to de-init vregs for %s\n",
 				__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 	mdss_dsi_put_dt_vreg_data(&pdev->dev, &ctrl_pdata->panel_power_data);
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	lge_mdss_dsi_deinit_extra_pm(pdev, ctrl_pdata);
-#endif
 
 	mfd = platform_get_drvdata(pdev);
 	msm_dss_iounmap(&ctrl_pdata->mmss_misc_io);
@@ -4315,13 +4342,6 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 						__func__, __LINE__);
 
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
-	/* Only HDK uses LGD RSP panel & needs DSV en gpio. */
-	if (pinfo->panel_type == LGD_R69007_INCELL_CMD_PANEL) {
-		ctrl_pdata->dsv_ena_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
-				 "qcom,platform-dsv-ena-gpio", 0);
-		pr_err("[Display] DSV_ENA GPIO:%d\n", ctrl_pdata->dsv_ena_gpio);
-	}
-
 	if (gpio_request(ctrl_pdata->rst_gpio, "disp_rst-n"))
 		pr_err("request reset gpio failed\n");
 
@@ -4410,12 +4430,6 @@ int dsi_panel_device_register(struct platform_device *ctrl_pdev,
 						__func__, rc);
 		return rc;
 	}
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
-	rc = lge_mdss_dsi_init_extra_pm(ctrl_pdev, pan_node, ctrl_pdata);
-	if (rc) {
-		return rc;
-	}
-#endif
 
 	rc = mdss_dsi_parse_ctrl_params(ctrl_pdev, pan_node, ctrl_pdata);
 	if (rc) {

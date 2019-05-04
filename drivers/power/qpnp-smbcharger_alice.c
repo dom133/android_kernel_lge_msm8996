@@ -1466,7 +1466,7 @@ static void read_usb_type(struct smbchg_chip *chip, char **usb_type_name,
 static enum power_supply_type get_usb_pd_supply_type(struct smbchg_chip *chip)
 {
    union power_supply_propval pval = {0, };
-   int rc;
+   int rc = -EINVAL;
 
    if (!chip->ctype_psy) {
        chip->ctype_psy = power_supply_get_by_name("usb_pd");
@@ -5623,17 +5623,18 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 		current_limit_ma = DEFAULT_SDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB_CDP)
 		current_limit_ma = DEFAULT_CDP_MA;
-#ifdef CONFIG_LGE_PM_CHARGING_CONTROLLER
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP) {
+#ifdef CONFIG_LGE_PM_CHARGING_CONTROLLER
+#ifdef CONFIG_LGE_PM_MAXIM_EVP_CONTROL
 		if (chip->is_evp_ta)
 			current_limit_ma = smbchg_default_dcp_icl_ma;
 		else
+#endif
 			current_limit_ma = smbchg_default_hvdcp_icl_ma;
-	}
 #else
-	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP)
 		current_limit_ma = smbchg_default_hvdcp_icl_ma;
 #endif
+	}
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP_3)
 		current_limit_ma = smbchg_default_hvdcp3_icl_ma;
 	else
@@ -5653,7 +5654,7 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	}
 #endif
 
-#ifdef CONFIG_LGE_PM_FACTORY_CABLE
+#if CONFIG_LGE_PM_FACTORY_CABLE
 #ifdef CONFIG_LGE_USB_TYPE_C
 	if (!chip->dp_alt_mode && lge_is_factory_cable()) {
 #else
@@ -9974,7 +9975,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	int rc;
 	struct smbchg_chip *chip;
 	struct power_supply *usb_psy;
-	struct qpnp_vadc_chip *vadc_dev;
+	struct qpnp_vadc_chip *vadc_dev = NULL;
 
 #ifdef CONFIG_LGE_PM_CHARGING_CONTROLLER
 	pr_smb(PR_LGE, "smbchg_probe start for alice\n");

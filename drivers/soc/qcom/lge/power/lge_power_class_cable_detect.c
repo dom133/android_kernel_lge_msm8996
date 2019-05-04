@@ -35,7 +35,7 @@
 #define DRIVER_AUTHOR	"yongk.kim@lge.com"
 #define DRIVER_VERSION	"1.0"
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE_KR_F
+#if defined(CONFIG_MACH_MSM8996_LUCYE_KR_F) || defined(CONFIG_MACH_MSM8996_FALCON)
 #define MAX_CABLE_NUM	6
 #else
 #define MAX_CABLE_NUM	15
@@ -888,7 +888,7 @@ static void get_cable_data_from_dt(struct cable_detect *cd)
 	u32 cable_value[6];
 	int rc = 0;
 	struct device_node *node_temp = cd->dev->of_node;
-#ifdef CONFIG_MACH_MSM8996_LUCYE_KR_F
+#if defined(CONFIG_MACH_MSM8996_LUCYE_KR_F) || defined(CONFIG_MACH_MSM8996_FALCON)
 	const char *propname[MAX_CABLE_NUM] = {
 		"lge,no-init-cable",
 		"lge,cable-mhl-1k",

@@ -143,15 +143,6 @@ VALIDATE/COMMIT FLAG CONFIGURATION
  */
 #define MDP_COMMIT_SYNC_FENCE_WAIT		0x04
 
-/* Flag to update brightness when commit */
-#define MDP_COMMIT_UPDATE_BRIGHTNESS		0x40
-
-/*
- * Flag to indicate that rectangle number is being assigned
- * by userspace in multi-rectangle mode
- */
-#define MDP_COMMIT_RECT_NUM 0x2000
-
 #define MDP_COMMIT_VERSION_1_0		0x00010000
 
 #define OUT_LAYER_COLOR_SPACE
@@ -328,14 +319,8 @@ struct mdp_input_layer {
 	 */
 	int			error_code;
 
-	/*
-	 * For source pipes supporting multi-rectangle, this field identifies
-	 * the rectangle index of the source pipe.
-	 */
-	uint32_t		rect_num;
-
 	/* 32bits reserved value for future usage. */
-	uint32_t		reserved[5];
+	uint32_t		reserved[6];
 };
 
 struct mdp_output_layer {
@@ -485,9 +470,6 @@ struct mdp_layer_commit_v1 {
 	 * Represents number of Destination scaler data provied by userspace.
 	 */
 	uint32_t		dest_scaler_cnt;
-
-	/* Backlight level that would update when display commit */
-	uint32_t		bl_level;
 
 	/* FRC info per device which contains frame count and timestamp */
 	struct mdp_frc_info __user *frc_info;

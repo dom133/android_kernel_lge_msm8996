@@ -32,6 +32,9 @@
 #include "lge/lge_mdss_aod.h"
 #endif
 
+#if defined(CONFIG_LGE_INTERVAL_MONITOR)
+#include "lge/lge_interval_monitor.h"
+#endif
 #define MDSS_MDP_QSEED3_VER_DOWNSCALE_LIM 2
 #define NUM_MIXERCFG_REGS 3
 #define MDSS_MDP_WB_OUTPUT_BPP	3
@@ -937,7 +940,11 @@ static u32 mdss_mdp_calc_prefill_line_time(struct mdss_mdp_ctl *ctl,
 {
 	u32 prefill_us = 0;
 	u32 prefill_amortized = 0;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_COMMON)
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+#else
+	struct mdss_data_type *mdata;
+#endif
 	struct mdss_mdp_mixer *mixer;
 	struct mdss_panel_info *pinfo;
 	u32 fps, v_total;
@@ -5304,6 +5311,9 @@ int mdss_mdp_display_wait4comp(struct mdss_mdp_ctl *ctl)
 	if (ctl->ops.wait_fnc)
 		ret = ctl->ops.wait_fnc(ctl, NULL);
 	ATRACE_END("wait_fnc");
+#if defined(CONFIG_LGE_INTERVAL_MONITOR)
+	lge_interval_notify(ktime_get());
+#endif
 
 	trace_mdp_commit(ctl);
 
@@ -5415,16 +5425,6 @@ u64 last_commit_ms;
 EXPORT_SYMBOL(last_commit_ms);
 #endif
 #endif
-
-static bool mdss_mdp_handle_backlight_extn(struct mdss_mdp_ctl *ctl)
-{
-	if (ctl->intf_type == MDSS_INTF_DSI && !ctl->is_video_mode &&
-	    ctl->mfd->bl_extn_level >= 0)
-		return true;
-	else
-		return false;
-}
-
 int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 	struct mdss_mdp_commit_cb *commit_cb)
 {
@@ -5573,15 +5573,6 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 	if (ctl->ops.wait_pingpong && !mdata->serialize_wait4pp)
 		mdss_mdp_display_wait4pingpong(ctl, false);
 
-	/*
-	 * If backlight needs to change, wait for 1 vsync before setting
-	 * PCC and kickoff
-	 */
-	if (mdss_mdp_handle_backlight_extn(ctl) &&
-	    ctl->ops.wait_for_vsync_fnc) {
-		ret = ctl->ops.wait_for_vsync_fnc(ctl);
-	}
-
 	/* Moved pp programming to post ping pong */
 	if (!ctl->is_video_mode && ctl->mfd &&
 			ctl->mfd->dcm_state != DTM_ENTER) {
@@ -5723,18 +5714,6 @@ int mdss_mdp_display_commit(struct mdss_mdp_ctl *ctl, void *arg,
 
 	if (ret)
 		pr_warn("ctl %d error displaying frame\n", ctl->num);
-
-	/* update backlight in commit */
-	if (mdss_mdp_handle_backlight_extn(ctl)) {
-		if (!IS_CALIB_MODE_BL(ctl->mfd) && (!ctl->mfd->ext_bl_ctrl ||
-						!ctl->mfd->bl_level)) {
-			mutex_lock(&ctl->mfd->bl_lock);
-			mdss_fb_set_backlight(ctl->mfd,
-					      ctl->mfd->bl_extn_level);
-			ctl->mfd->bl_level_usr = ctl->mfd->bl_extn_level;
-			mutex_unlock(&ctl->mfd->bl_lock);
-		}
-	}
 
 	ctl->play_cnt++;
 #if (defined CONFIG_LGE_PM_TRITON && defined FPS_BOOST)

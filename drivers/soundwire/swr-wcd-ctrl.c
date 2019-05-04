@@ -507,7 +507,7 @@ static int swrm_read(struct swr_master *master, u8 dev_num, u16 reg_addr,
 {
 	struct swr_mstr_ctrl *swrm = swr_get_ctrl_data(master);
 	int ret = 0;
-	int val;
+	int val = 0;
 	u8 *reg_val = (u8 *)buf;
 
 	if (!swrm) {
@@ -1258,7 +1258,7 @@ static int swrm_get_logical_dev_num(struct swr_master *mstr, u64 dev_id,
 				u8 *dev_num)
 {
 	int i;
-	u64 id;
+	u64 id = 0;
 	int ret = -EINVAL;
 	struct swr_mstr_ctrl *swrm = swr_get_ctrl_data(mstr);
 
@@ -1703,7 +1703,8 @@ int swrm_wcd_notify(struct platform_device *pdev, u32 id, void *data)
 		mutex_lock(&swrm->reslock);
 		if ((swrm->state == SWR_MSTR_RESUME) ||
 		    (swrm->state == SWR_MSTR_UP)) {
-			dev_dbg(swrm->dev, "%s: SWR master is already UP: %d\n",
+			pm_runtime_mark_last_busy(&pdev->dev);
+			dev_dbg(swrm->dev, "%s: SWR master is already UP: %d, Just call pm_runtime_mark_last_busy\n",
 				__func__, swrm->state);
 		} else {
 			pm_runtime_mark_last_busy(&pdev->dev);

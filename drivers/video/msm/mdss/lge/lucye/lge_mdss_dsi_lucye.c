@@ -333,12 +333,12 @@ int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 			__func__, __LINE__);
 		return ret;
 	}
-#if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
-	if (ctrl_pdata->panel_data.panel_info.aod_labibb_ctrl != true) {
+//#if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
+//	if (ctrl_pdata->panel_data.panel_info.aod_labibb_ctrl != true) {
 		pr_info("[AOD] Skip labibb disable\n");
 		return ret;
-	}
-#endif
+//	}
+//#endif
 	ret = msm_dss_enable_vreg(
 		ctrl_pdata->panel_power_data.vreg_config,
 		ctrl_pdata->panel_power_data.num_vreg, 0);

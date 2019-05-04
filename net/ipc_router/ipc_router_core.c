@@ -138,7 +138,6 @@ struct msm_ipc_router_xprt_info {
 	struct msm_ipc_router_xprt *xprt;
 	uint32_t remote_node_id;
 	uint32_t initialized;
-	uint32_t hello_sent;
 	struct list_head pkt_list;
 	struct wakeup_source ws;
 	struct mutex rx_lock_lhb2;
@@ -479,15 +478,23 @@ out_create_rtentry2:
  * This function is used to obtain a reference to the rounting table entry
  * corresponding to a node id.
  */
+static struct msm_ipc_routing_table_entry *ipc_router_get_rtentry_ref_lock(
+	uint32_t node_id)
+{
+	struct msm_ipc_routing_table_entry *rt_entry;
+
+	rt_entry = lookup_routing_table(node_id);
+	if (rt_entry)
+		kref_get(&rt_entry->ref);
+	return rt_entry;
+}
 static struct msm_ipc_routing_table_entry *ipc_router_get_rtentry_ref(
 	uint32_t node_id)
 {
 	struct msm_ipc_routing_table_entry *rt_entry;
 
 	down_read(&routing_table_lock_lha3);
-	rt_entry = lookup_routing_table(node_id);
-	if (rt_entry)
-		kref_get(&rt_entry->ref);
+	rt_entry = ipc_router_get_rtentry_ref_lock(node_id);
 	up_read(&routing_table_lock_lha3);
 	return rt_entry;
 }
@@ -731,7 +738,7 @@ static void *msm_ipc_router_skb_to_buf(struct sk_buff_head *skb_head,
 
 	temp = skb_peek(skb_head);
 	buf_len = len;
-	buf = kmalloc(buf_len, GFP_KERNEL);
+	buf = kmalloc(buf_len, GFP_NOFS);
 	if (!buf) {
 		IPC_RTR_ERR("%s: cannot allocate buf\n", __func__);
 		return NULL;
@@ -2465,37 +2472,12 @@ static void do_version_negotiation(struct msm_ipc_router_xprt_info *xprt_info,
 	}
 }
 
-static int send_hello_msg(struct msm_ipc_router_xprt_info *xprt_info)
-{
-	int rc = 0;
-	union rr_control_msg ctl;
-
-	if (xprt_info->hello_sent)
-		return 0;
-
-	xprt_info->hello_sent = 1;
-	/* Send a HELLO message */
-	memset(&ctl, 0, sizeof(ctl));
-	ctl.hello.cmd = IPC_ROUTER_CTRL_CMD_HELLO;
-	ctl.hello.checksum = IPC_ROUTER_HELLO_MAGIC;
-	ctl.hello.versions = (uint32_t)IPC_ROUTER_VER_BITMASK;
-	ctl.hello.checksum = ipc_router_calc_checksum(&ctl);
-	rc = ipc_router_send_ctl_msg(xprt_info, &ctl,
-				     IPC_ROUTER_DUMMY_DEST_NODE);
-	if (rc < 0) {
-		xprt_info->hello_sent = 0;
-		IPC_RTR_ERR("%s: Error sending HELLO message\n",
-			    __func__);
-		return rc;
-	}
-	return rc;
-}
-
 static int process_hello_msg(struct msm_ipc_router_xprt_info *xprt_info,
 				union rr_control_msg *msg,
 				struct rr_header_v1 *hdr)
 {
 	int i, rc = 0;
+	union rr_control_msg ctl;
 	struct msm_ipc_routing_table_entry *rt_entry;
 
 	if (!hdr)
@@ -2510,10 +2492,19 @@ static int process_hello_msg(struct msm_ipc_router_xprt_info *xprt_info,
 	kref_put(&rt_entry->ref, ipc_router_release_rtentry);
 
 	do_version_negotiation(xprt_info, msg);
-	rc = send_hello_msg(xprt_info);
-	if (rc < 0)
+	/* Send a reply HELLO message */
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.hello.cmd = IPC_ROUTER_CTRL_CMD_HELLO;
+	ctl.hello.checksum = IPC_ROUTER_HELLO_MAGIC;
+	ctl.hello.versions = (uint32_t)IPC_ROUTER_VER_BITMASK;
+	ctl.hello.checksum = ipc_router_calc_checksum(&ctl);
+	rc = ipc_router_send_ctl_msg(xprt_info, &ctl,
+				     IPC_ROUTER_DUMMY_DEST_NODE);
+	if (rc < 0) {
+		IPC_RTR_ERR("%s: Error sending reply HELLO message\n",
+								__func__);
 		return rc;
-
+	}
 	xprt_info->initialized = 1;
 
 	/* Send list of servers from the local node and from nodes
@@ -3060,6 +3051,12 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 	hdr->dst_node_id = rport_ptr->node_id;
 	hdr->dst_port_id = rport_ptr->port_id;
 
+	if (unlikely(!virt_addr_valid(pkt->pkt_fragment_q)))
+		 __dma_flush_range((void *)&pkt->pkt_fragment_q, (void *)&pkt->pkt_fragment_q + (sizeof(struct sk_buff_head *)));
+
+	if (pkt->pkt_fragment_q == NULL)
+		return -EINVAL;
+
 	ret = ipc_router_tx_wait(src, rport_ptr, &set_confirm_rx, timeout);
 	if (ret < 0)
 		return ret;
@@ -3072,14 +3069,16 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 		ret = loopback_data(src, hdr->dst_port_id, pkt);
 		return ret;
 	}
-
-	rt_entry = ipc_router_get_rtentry_ref(hdr->dst_node_id);
+	down_read(&routing_table_lock_lha3);//LGE
+	rt_entry = ipc_router_get_rtentry_ref_lock(hdr->dst_node_id);
 	if (!rt_entry) {
 		IPC_RTR_ERR("%s: Remote node %d not up\n",
 			__func__, hdr->dst_node_id);
+		up_read(&routing_table_lock_lha3);//LGE
 		return -ENODEV;
 	}
-	down_read(&rt_entry->lock_lha4);
+	down_read(&rt_entry->lock_lha4);//LGE
+	up_read(&routing_table_lock_lha3);
 	xprt_info = rt_entry->xprt_info;
 	ret = ipc_router_get_xprt_info_ref(xprt_info);
 	if (ret < 0) {
@@ -3947,6 +3946,7 @@ static void debugfs_init(void) {}
  */
 static void *ipc_router_create_log_ctx(char *name)
 {
+#ifdef CONFIG_IPC_LOGGING
 	struct ipc_rtr_log_ctx *sub_log_ctx;
 
 	sub_log_ctx = kmalloc(sizeof(struct ipc_rtr_log_ctx),
@@ -3966,6 +3966,9 @@ static void *ipc_router_create_log_ctx(char *name)
 	INIT_LIST_HEAD(&sub_log_ctx->list);
 	list_add_tail(&sub_log_ctx->list, &log_ctx_list);
 	return sub_log_ctx->log_ctx;
+#else
+	return NULL;
+#endif
 }
 
 static void ipc_router_log_ctx_init(void)
@@ -4070,7 +4073,6 @@ static int msm_ipc_router_add_xprt(struct msm_ipc_router_xprt *xprt)
 
 	xprt_info->xprt = xprt;
 	xprt_info->initialized = 0;
-	xprt_info->hello_sent = 0;
 	xprt_info->remote_node_id = -1;
 	INIT_LIST_HEAD(&xprt_info->pkt_list);
 	mutex_init(&xprt_info->rx_lock_lhb2);
@@ -4110,7 +4112,6 @@ static int msm_ipc_router_add_xprt(struct msm_ipc_router_xprt *xprt)
 	up_write(&routing_table_lock_lha3);
 
 	xprt->priv = xprt_info;
-	send_hello_msg(xprt_info);
 
 	return 0;
 }

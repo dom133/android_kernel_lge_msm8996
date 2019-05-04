@@ -1368,7 +1368,7 @@ static void _set_secvid(struct kgsl_device *device)
 		adreno_writereg64(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE_HI,
-			KGSL_IOMMU_SECURE_BASE(&device->mmu));
+			KGSL_IOMMU_SECURE_BASE);
 		adreno_writereg(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_SIZE,
 			KGSL_IOMMU_SECURE_SIZE);
@@ -1790,7 +1790,7 @@ static int adreno_getproperty(struct kgsl_device *device,
 				 * anything to mmap().
 				 */
 				shadowprop.gpuaddr =
-					(unsigned long)device->memstore.gpuaddr;
+					(unsigned int) device->memstore.gpuaddr;
 				shadowprop.size = device->memstore.size;
 				/* GSL needs this to be set, even if it
 				   appears to be meaningless */
@@ -1823,30 +1823,6 @@ static int adreno_getproperty(struct kgsl_device *device,
 
 			if (copy_to_user(value, &qdssprop,
 						sizeof(qdssprop))) {
-				status = -EFAULT;
-				break;
-			}
-			status = 0;
-		}
-		break;
-	case KGSL_PROP_DEVICE_QTIMER:
-		{
-			struct kgsl_qtimer_prop qtimerprop = {0};
-			struct kgsl_memdesc *qtimer_desc =
-				kgsl_mmu_get_qtimer_global_entry(device);
-
-			if (sizebytes != sizeof(qtimerprop)) {
-				status = -EINVAL;
-				break;
-			}
-
-			if (qtimer_desc) {
-				qtimerprop.gpuaddr = qtimer_desc->gpuaddr;
-				qtimerprop.size = qtimer_desc->size;
-			}
-
-			if (copy_to_user(value, &qtimerprop,
-						sizeof(qtimerprop))) {
 				status = -EFAULT;
 				break;
 			}

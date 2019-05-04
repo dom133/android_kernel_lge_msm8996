@@ -48,6 +48,7 @@ static ssize_t hidraw_read(struct file *file, char __user *buffer, size_t count,
 	struct hidraw_list *list = file->private_data;
 	int ret = 0, len;
 	DECLARE_WAITQUEUE(wait, current);
+	unsigned long flags;
 
 	mutex_lock(&list->read_mutex);
 
@@ -95,9 +96,11 @@ static ssize_t hidraw_read(struct file *file, char __user *buffer, size_t count,
 			ret = len;
 		}
 
+		spin_lock_irqsave(&list->hidraw->list_lock, flags);
 		kfree(list->buffer[list->tail].value);
 		list->buffer[list->tail].value = NULL;
 		list->tail = (list->tail + 1) & (HIDRAW_BUFFER_SIZE - 1);
+		spin_unlock_irqrestore(&list->hidraw->list_lock, flags);
 	}
 out:
 	mutex_unlock(&list->read_mutex);
@@ -196,11 +199,6 @@ static ssize_t hidraw_get_report(struct file *file, char __user *buffer, size_t 
 	__u8 *buf;
 	int ret = 0, len;
 	unsigned char report_number;
-
-	if (!hidraw_table[minor] || !hidraw_table[minor]->exist) {
-		ret = -ENODEV;
-		goto out;
-	}
 
 	dev = hidraw_table[minor]->hid;
 

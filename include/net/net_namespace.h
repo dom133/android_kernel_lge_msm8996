@@ -16,6 +16,9 @@
 #include <net/netns/packet.h>
 #include <net/netns/ipv4.h>
 #include <net/netns/ipv6.h>
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+#include <net/netns/mptcp.h>
+#endif
 #include <net/netns/ieee802154_6lowpan.h>
 #include <net/netns/sctp.h>
 #include <net/netns/dccp.h>
@@ -92,6 +95,11 @@ struct net {
 #if IS_ENABLED(CONFIG_IPV6)
 	struct netns_ipv6	ipv6;
 #endif
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+#if IS_ENABLED(CONFIG_MPTCP)
+	struct netns_mptcp	mptcp;
+#endif
+#endif
 #if IS_ENABLED(CONFIG_IEEE802154_6LOWPAN)
 	struct netns_ieee802154_lowpan	ieee802154_lowpan;
 #endif
@@ -112,7 +120,6 @@ struct net {
 #endif
 #if IS_ENABLED(CONFIG_NF_DEFRAG_IPV6)
 	struct netns_nf_frag	nf_frag;
-	struct ctl_table_header *nf_frag_frags_hdr;
 #endif
 	struct sock		*nfnl;
 	struct sock		*nfnl_stash;
@@ -201,11 +208,6 @@ int net_eq(const struct net *net1, const struct net *net2)
 	return net1 == net2;
 }
 
-static inline int check_net(const struct net *net)
-{
-	return atomic_read(&net->count) != 0;
-}
-
 void net_drop_ns(void *);
 
 #else
@@ -226,11 +228,6 @@ static inline struct net *maybe_get_net(struct net *net)
 
 static inline
 int net_eq(const struct net *net1, const struct net *net2)
-{
-	return 1;
-}
-
-static inline int check_net(const struct net *net)
 {
 	return 1;
 }

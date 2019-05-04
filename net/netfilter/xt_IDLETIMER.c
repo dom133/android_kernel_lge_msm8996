@@ -330,10 +330,10 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 		printk(KERN_WARNING "[%s] Failed to register pm notifier %d\n",
 				__func__, ret);
 
-	INIT_WORK(&info->timer->work, idletimer_tg_work);
-
 	mod_timer(&info->timer->timer,
 		  msecs_to_jiffies(info->timeout * 1000) + jiffies);
+
+	INIT_WORK(&info->timer->work, idletimer_tg_work);
 
 	return 0;
 
@@ -395,7 +395,9 @@ static unsigned int idletimer_tg_target(struct sk_buff *skb,
 
 	BUG_ON(!info->timer);
 
+	spin_lock_bh(&timestamp_lock);
 	info->timer->active = true;
+	spin_unlock_bh(&timestamp_lock);
 
 	if (time_before(info->timer->timer.expires, now)) {
 		schedule_work(&info->timer->work);
@@ -419,10 +421,7 @@ static int idletimer_tg_checkentry(const struct xt_tgchk_param *par)
 		pr_debug("timeout value is zero\n");
 		return -EINVAL;
 	}
-	if (info->timeout >= INT_MAX / 1000) {
-		pr_debug("timeout value is too big\n");
-		return -EINVAL;
-	}
+
 	if (info->label[0] == '\0' ||
 	    strnlen(info->label,
 		    MAX_IDLETIMER_LABEL_SIZE) == MAX_IDLETIMER_LABEL_SIZE) {

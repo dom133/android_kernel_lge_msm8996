@@ -29,6 +29,7 @@
 #include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/sysrq.h>
 #include <linux/smp.h>
 #include <linux/sysrq.h>
 #include <linux/timer.h>
@@ -396,7 +397,7 @@ static void fiq_debugger_work(struct work_struct *work)
 		cmd += 6;
 		while (*cmd == ' ')
 			cmd++;
-		if ((*cmd != '\0') && sysrq_on())
+		if ((cmd != '\0') && sysrq_on())
 			kernel_restart(cmd);
 		else
 			kernel_restart(NULL);

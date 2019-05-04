@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -836,18 +836,6 @@ int gsi_write_channel_scratch(unsigned long chan_hdl,
 		union __packed gsi_channel_scratch val);
 
 /**
- * gsi_read_channel_scratch - Peripheral should call this function to
- * read the scratch area of the channel context
- *
- * @chan_hdl:  Client handle previously obtained from
- *             gsi_alloc_channel
- *
- * @Return gsi_status
- */
-int gsi_read_channel_scratch(unsigned long chan_hdl,
-		union __packed gsi_channel_scratch *ch_scratch);
-
-/**
  * gsi_start_channel - Peripheral should call this function to
  * start a channel i.e put into running state
  *
@@ -1092,6 +1080,19 @@ void gsi_get_inst_ram_offset_and_size(unsigned long *base_offset,
  */
 int gsi_halt_channel_ee(unsigned int chan_idx, unsigned int ee, int *code);
 
+/**
+ * gsi_get_inst_ram_offset_and_size - Peripheral should call this function
+ * to get instruction RAM base address offset and size. Peripheral typically
+ * uses this info to load GSI FW into the IRAM.
+ *
+ * @base_offset:[OUT] - IRAM base offset address
+ * @size:	[OUT] - IRAM size
+
+ * @Return none
+ */
+void gsi_get_inst_ram_offset_and_size(unsigned long *base_offset,
+		unsigned long *size);
+
 /*
  * Here is a typical sequence of calls
  *
@@ -1105,7 +1106,6 @@ int gsi_halt_channel_ee(unsigned int chan_idx, unsigned int ee, int *code);
  * gsi_alloc_channel (for as many channels as needed; channels can have
  * no event ring, an exclusive event ring or a shared event ring)
  * gsi_write_channel_scratch
- * gsi_read_channel_scratch
  * gsi_start_channel
  * gsi_queue_xfer/gsi_start_xfer
  * gsi_config_channel_mode/gsi_poll_channel (if clients wants to poll on
@@ -1186,12 +1186,6 @@ static inline int gsi_alloc_channel(struct gsi_chan_props *props,
 
 static inline int gsi_write_channel_scratch(unsigned long chan_hdl,
 		union __packed gsi_channel_scratch val)
-{
-	return -GSI_STATUS_UNSUPPORTED_OP;
-}
-
-static inline int gsi_read_channel_scratch(unsigned long chan_hdl,
-		union __packed gsi_channel_scratch *ch_scratch)
 {
 	return -GSI_STATUS_UNSUPPORTED_OP;
 }

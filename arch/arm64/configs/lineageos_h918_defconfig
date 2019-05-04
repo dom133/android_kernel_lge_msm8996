@@ -1,3 +1,0 @@
-include lineageos_elsa_common
-# LG Platform
-CONFIG_MACH_MSM8996_ELSA_TMO_US=y

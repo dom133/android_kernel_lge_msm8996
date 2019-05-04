@@ -27,6 +27,10 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/qpnp-revid.h>
 
+#ifdef CONFIG_LGE_DISPLAY_LABIBB_RECOVERY
+#include <linux/qpnp/power-on.h>
+#endif
+
 #ifdef CONFIG_LGE_LCD_POWER_CTRL
 #include <soc/qcom/lge/board_lge.h>
 #endif
@@ -449,7 +453,6 @@ struct lab_regulator {
 	int				step_size;
 	int				slew_rate;
 	int				soft_start;
-
 	int				vreg_enabled;
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
 	int				mode;
@@ -521,6 +524,7 @@ struct settings {
 	u8	value;
 	bool	sec_access;
 };
+
 
 #define SETTING(_id, _sec_access)		\
 	[_id] = {				\
@@ -1041,7 +1045,6 @@ static int qpnp_labibb_ttw_enter_ibb_common(struct qpnp_labibb *labibb)
 			REG_IBB_PD_CTL, rc);
 		return rc;
 	}
-
 #if defined (CONFIG_LGE_DISPLAY_DELAY_SLEW_CONTROL_IN_TTW)
 	val = IBB_PWRUP_PWRDN_CTL_1_EN_DLY1 | PWRUP_PWRDN_CTL_1_DISCHARGE_EN; //power up/down 1msec delay
 #else
@@ -1090,7 +1093,6 @@ static int qpnp_labibb_ttw_enter_ibb_pmi8996(struct qpnp_labibb *labibb)
 {
 	int rc;
 	u8 val;
-
 #if defined (CONFIG_LGE_DISPLAY_DELAY_SLEW_CONTROL_IN_TTW)
 	val = IBB_BYPASS_PWRDN_DLY2_BIT; //slew rate 1ms for IBB in TTW mode
 #else
@@ -1221,11 +1223,10 @@ static int qpnp_labibb_regulator_ttw_mode_enter(struct qpnp_labibb *labibb)
 				REG_LAB_SPARE_CTL, rc);
 			return rc;
 		}
-
 #if defined (CONFIG_LGE_DISPLAY_DELAY_SLEW_CONTROL_IN_TTW)
-		val = 3; //slew rate 800us for LAB in TTW mode
+		val = 0x03; //slew rate 800us for LAB in TTW mode
 #else
-		val = 0;
+		val = 0x00;
 #endif
 		rc = qpnp_labibb_write(labibb, labibb->lab_base +
 				REG_LAB_SOFT_START_CTL, &val, 1);
@@ -1380,7 +1381,9 @@ static void qpnp_labibb_enable_fail_reg_read(struct qpnp_labibb *labibb)
 		qpnp_labibb_read(labibb, &val,labibb->lab_base+i, 1);
 		pr_err("LAB address=0x%05x val=0x%x\n",labibb->lab_base+i,val);
 	}
+
 }
+
 
 static int qpnp_labibb_regulator_enable(struct qpnp_labibb *labibb)
 {
@@ -1460,12 +1463,19 @@ static int qpnp_labibb_regulator_enable(struct qpnp_labibb *labibb)
 	return 0;
 err_out:
 	rc = qpnp_ibb_set_mode(labibb, IBB_SW_CONTROL_DIS);
+
+#ifdef CONFIG_LGE_DISPLAY_LABIBB_RECOVERY
+	pr_err("[Display] Issue happened in warm reset. Need cold reset.\n");
+	mdelay(10000);
+	do_msm_hard_reset();
+#endif
 	if (rc) {
 		pr_err("Unable to set IBB_MODULE_EN rc = %d\n", rc);
 		return rc;
 	}
 	return -EINVAL;
 }
+
 
 static int qpnp_labibb_regulator_disable(struct qpnp_labibb *labibb)
 {
@@ -1620,7 +1630,6 @@ static int qpnp_labibb_regulator_ttw(struct qpnp_labibb *labibb, unsigned int mo
 	return 0;
 }
 
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
 static int qpnp_labibb_pulldown(struct qpnp_labibb *labibb, unsigned int mode)
 {
 	int rc;
@@ -1672,7 +1681,6 @@ static int qpnp_labibb_pulldown(struct qpnp_labibb *labibb, unsigned int mode)
 
 	return 0;
 }
-#endif
 #endif
 
 static int qpnp_lab_regulator_enable(struct regulator_dev *rdev)
@@ -1921,13 +1929,11 @@ static int qpnp_lab_regulator_setmode(struct regulator_dev *rdev, unsigned int m
 		if (!labibb->standalone)
 			return qpnp_labibb_regulator_ttw(labibb, mode);
 	break;
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
 	case REGULATOR_MODE_ENABLE_PULLDOWN:
 	case REGULATOR_MODE_DISABLE_PULLDOWN:
 		if (!labibb->standalone)
 			return qpnp_labibb_pulldown(labibb, mode);
 	break;
-#endif
 	default:
 		pr_err("%s: unknown mode %x\n", __func__, mode);
 		rc = -EINVAL;
@@ -2130,6 +2136,9 @@ static int register_qpnp_lab_regulator(struct qpnp_labibb *labibb,
 				rc);
 			return rc;
 		}
+#ifdef CONFIG_LGE_DISPLAY_LABIBB_RECOVERY
+		pr_err("[Display] LABIBB is not enabled in LK!!\n");
+#endif
 	} else {
 		rc = qpnp_labibb_read(labibb, &val,
 			labibb->lab_base + REG_LAB_LCD_AMOLED_SEL, 1);
@@ -2233,7 +2242,6 @@ static int register_qpnp_lab_regulator(struct qpnp_labibb *labibb,
 					REGULATOR_MODE_TTW_ON	|
 					REGULATOR_MODE_TTW_OFF;
 #endif
-
 		labibb->lab_vreg.rdev = regulator_register(rdesc, &cfg);
 		if (IS_ERR(labibb->lab_vreg.rdev)) {
 			rc = PTR_ERR(labibb->lab_vreg.rdev);
@@ -2460,7 +2468,6 @@ static int qpnp_ibb_dt_init(struct qpnp_labibb *labibb,
 		pr_err("get qcom,qpnp-ibb-init-voltage failed, rc = %d\n", rc);
 		return rc;
 	}
-
 	pr_err("[Display] labibb->ibb_vreg.curr_volt %d\n", labibb->ibb_vreg.curr_volt);
 	if (!of_property_read_bool(of_node,
 			"qcom,qpnp-ibb-use-default-voltage")) {
@@ -2739,7 +2746,6 @@ static int register_qpnp_ibb_regulator(struct qpnp_labibb *labibb,
 			rc);
 		return rc;
 	}
-
 #if defined(CONFIG_LGE_DISPLAY_COMMON)
 	rc = qpnp_labibb_read(labibb, &val,
 				labibb->ibb_base + REG_IBB_REVISION4, 1);
@@ -2769,7 +2775,6 @@ static int register_qpnp_ibb_regulator(struct qpnp_labibb *labibb,
 		return rc;
 	}
 #endif
-
 	if (labibb->mode == QPNP_LABIBB_AMOLED_MODE) {
 		/*
 		 * AMOLED mode needs ibb discharge resistor to be
@@ -2787,7 +2792,6 @@ static int register_qpnp_ibb_regulator(struct qpnp_labibb *labibb,
 		pr_err("Invalid property in qcom,qpnp-ibb-discharge-resistor\n");
 		return -EINVAL;
 	}
-
 	rc = qpnp_labibb_write(labibb, labibb->ibb_base +
 			REG_IBB_SOFT_START_CTL, &val, 1);
 	if (rc) {
@@ -3014,7 +3018,6 @@ static int register_qpnp_ibb_regulator(struct qpnp_labibb *labibb,
 					REGULATOR_MODE_TTW_ON	|
 					REGULATOR_MODE_TTW_OFF;
 #endif
-
 		labibb->ibb_vreg.rdev = regulator_register(rdesc, &cfg);
 		if (IS_ERR(labibb->ibb_vreg.rdev)) {
 			rc = PTR_ERR(labibb->ibb_vreg.rdev);
@@ -3236,6 +3239,7 @@ static int qpnp_labibb_regulator_probe(struct spmi_device *spmi)
 	}
 
 	dev_set_drvdata(&spmi->dev, labibb);
+
 	return 0;
 
 fail_registration:

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -401,7 +401,7 @@ struct dwc3_msm {
 static void dwc3_pwr_event_handler(struct dwc3_msm *mdwc);
 static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned mA);
 
-#if defined (CONFIG_LGE_TOUCH_CORE)
+#if defined (CONFIG_LGE_TOUCH_CORE) || defined (CONFIG_LGE_TOUCH_CORE_NOS)
 void touch_notify_connect(int value);
 #endif
 
@@ -758,12 +758,10 @@ static void dwc3_cable_adc_work(struct work_struct *w)
 	if(lge_pm_get_cable_type() == CABLE_910K &&
 		(boot_mode == LGE_BOOT_MODE_QEM_56K ||
 		boot_mode == LGE_BOOT_MODE_QEM_130K) &&
-		(lge_smem_cable_type() != 11 || !firstboot_check)
-#ifdef CONFIG_LGE_USB_G_LAF
-		&& !lge_get_laf_mode()
-#endif
+		(lge_smem_cable_type() != 11 || !firstboot_check) &&
+		!lge_get_laf_mode()
 #if defined(CONFIG_SLIMPORT_COMMON) || defined(CONFIG_LGE_DP_ANX7688)
-		&& !slimport_is_connected()
+		&&!slimport_is_connected()
 #endif
 		)
 	{
@@ -3514,6 +3512,10 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 					   &mdwc->resume_work, 12);
 #endif
 #endif
+
+#if defined (CONFIG_LGE_TOUCH_CORE)
+		touch_notify_connect(mdwc->chg_type);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:
 		mdwc->health_status = val->intval;
@@ -4901,9 +4903,7 @@ static int dwc3_otg_start_peripheral(struct dwc3_msm *mdwc, int on)
 		dev_dbg(mdwc->dev, "%s: turn off gadget %s\n",
 					__func__, dwc->gadget.name);
 		usb_gadget_vbus_disconnect(&dwc->gadget);
-#ifdef CONFIG_LGE_USB_G_ANDROID
-		dwc3_msm_block_reset(mdwc, true);
-#endif
+
 		usb_phy_notify_disconnect(mdwc->hs_phy, USB_SPEED_HIGH);
 		usb_phy_notify_disconnect(mdwc->ss_phy, USB_SPEED_SUPER);
 		dwc3_override_vbus_status(mdwc, false);
@@ -5004,9 +5004,6 @@ skip_psy_type:
 		mA -= 10;
 #endif
 
-#if defined (CONFIG_LGE_TOUCH_CORE)
-	touch_notify_connect(mdwc->chg_type);
-#endif
 	if (mdwc->max_power == mA)
 		return 0;
 
@@ -5559,7 +5556,7 @@ static void dwc3_msm_otg_sm_work(struct work_struct *w)
 						mdwc->in_host_mode)
 				pm_wakeup_event(mdwc->dev,
 						DWC3_WAKEUP_SRC_TIMEOUT);
-#if defined (CONFIG_LGE_TOUCH_CORE)
+#if defined (CONFIG_LGE_TOUCH_CORE) || defined (CONFIG_LGE_TOUCH_CORE_NOS)
 			touch_notify_connect(6);
 #endif
 		}

@@ -110,9 +110,12 @@ static __inline__ struct ipv6_pinfo *inet6_sk_generic(struct sock *sk)
 
 	return (struct ipv6_pinfo *)(((u8 *)sk) + offset);
 }
-
+#ifdef CONFIG_LGP_DATA_TCPIP_MPTCP
+int inet6_create(struct net *net, struct socket *sock, int protocol, int kern)
+#else
 static int inet6_create(struct net *net, struct socket *sock, int protocol,
-			int kern)
+                      int kern)
+#endif
 {
 	struct inet_sock *inet;
 	struct ipv6_pinfo *np;
@@ -904,12 +907,12 @@ static int __init inet6_init(void)
 	err = register_pernet_subsys(&inet6_net_ops);
 	if (err)
 		goto register_pernet_fail;
-	err = ip6_mr_init();
-	if (err)
-		goto ipmr_fail;
 	err = icmpv6_init();
 	if (err)
 		goto icmp_fail;
+	err = ip6_mr_init();
+	if (err)
+		goto ipmr_fail;
 	err = ndisc_init();
 	if (err)
 		goto ndisc_fail;
@@ -1027,10 +1030,10 @@ igmp_fail:
 	ndisc_cleanup();
 ndisc_fail:
 	ip6_mr_cleanup();
-icmp_fail:
-	unregister_pernet_subsys(&inet6_net_ops);
 ipmr_fail:
 	icmpv6_cleanup();
+icmp_fail:
+	unregister_pernet_subsys(&inet6_net_ops);
 register_pernet_fail:
 	sock_unregister(PF_INET6);
 	rtnl_unregister_all(PF_INET6);

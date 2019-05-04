@@ -333,9 +333,6 @@ int __init cma_declare_contiguous(phys_addr_t base,
 			}
 		}
 
-		if (addr < highmem_start)
-			kmemleak_no_scan(__va(addr));
-
 		/*
 		 * kmemleak scans/reads tracked objects for pointers to other
 		 * objects but this address isn't mapped and accessible
@@ -401,6 +398,7 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align)
 		if (bitmap_no >= bitmap_maxno) {
 			if (retry_after_sleep < 2) {
 				start = 0;
+				pr_debug("%s: Memory range busy," "retry after sleep\n", __func__);
 				/*
 				* Page may be momentarily pinned by some other
 				* process which has been scheduled out, eg.

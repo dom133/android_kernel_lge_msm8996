@@ -67,7 +67,7 @@
 
 		qcom,initial-pwrlevel = <2>;
 
-		qcom,idle-timeout = <64>;
+		qcom,idle-timeout = <80>; //msecs
 		/*
 		 * Timeout to enter deeper power saving state
 		 * from NAP.
@@ -101,9 +101,6 @@
 		clock-names = "core_clk", "iface_clk", "rbbmtimer_clk",
 			"mem_clk", "mem_iface_clk", "alt_mem_iface_clk",
 			"mx_clk";
-
-		/* To disable GPU wake up on touch event */
-		qcom,disable-wake-on-touch;
 
 		/* Bus Scale Settings */
 		qcom,gpubw-dev = <&gpubw>;

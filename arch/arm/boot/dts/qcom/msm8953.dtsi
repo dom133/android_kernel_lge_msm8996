@@ -65,7 +65,7 @@
 
 		modem_mem: modem_region@0 {
 			compatible = "removed-dma-pool";
-			no-map-fixup;
+			no-map;
 			reg = <0x0 0x86c00000 0x0 0x6a00000>;
 		};
 
@@ -2335,6 +2335,11 @@
 		clock-names = "aux_clk", "pipe_clk", "cfg_ahb_clk", "phy_reset",
 			      "phy_phy_reset", "ref_clk_src", "ref_clk";
 
+	};
+
+	usb_audio_qmi_dev {
+		compatible = "qcom,usb-audio-qmi-dev";
+		qcom,usb-audio-intr-num = <2>;
 	};
 
 	dbm_1p5: dbm@70f8000 {

@@ -98,6 +98,12 @@ config LGE_DISPLAY_AOD_USE_QPNP_WLED
 	---help---
 	Feature for AOD (Always on Display) backlight mode control.
 
+config LGE_DISPLAY_AMBIENT_SUPPORTED
+	default n
+	bool "support ambient mode"
+	---help---
+	This feature proivdes support for ambiendt mode
+
 config LGE_LCD_OFF_DIMMING
 	bool "Enable LCD DIMMING for FOTA"
 	depends on MACH_LGE
@@ -158,6 +164,13 @@ config LGE_VSYNC_SKIP
 	---help---
 	This feature provides VSYNC skip scheme.
 
+config LGE_DISPLAY_USE_FSC
+	bool "Use LGE_DISPLAY_USE_FSC"
+	depends on LGE_DISPLAY_COMMON
+	default n
+	---help---
+	This feature support change full scale current wled
+
 config LGE_LCD_POWER_CTRL
 	bool "LCD power control mode"
 	depends on MACH_LGE
@@ -165,7 +178,7 @@ config LGE_LCD_POWER_CTRL
 	---help---
 	if you say yes here you get support for lcd power on/off control.
 
-config LGE_PANEL_RECOVERY
+config LGE_DISPLAY_RECOVERY_ESD
 	depends on  LGE_DISPLAY_COMMON
 	bool "Panel recovery support"
 	depends on MACH_LGE
@@ -199,20 +212,6 @@ config LGE_LCD_DYNAMIC_CABC_MIE_CTRL
 	default y
 	help
 	if you say yes here you get support for cabc, image enhance function dynamic control
-
-config LGE_DISPLAY_READER_MODE
-	depends on FB_MSM_MDSS
-	bool "LGE reader mode"
-	---help---
-	The reader mode provides support to change color temperature
-	by sending proper cmds to panel.
-
-config LGE_DISPLAY_READER_MONO_MODE
-	depends on FB_MSM_MDSS
-	bool "LGE reader mono mode"
-	---help---
-	The reader mode provides support to change mono color
-	by sending proper cmds to panel.
 
 config LGE_DISPLAY_SRE_MODE
 	depends on FB_MSM_MDSS
@@ -308,6 +307,12 @@ config LGE_DISPLAY_HPLUS_COMMON
 	---help---
 	The HPLUS COMMON provides support for HPLUS panel
 
+config LGE_DISPLAY_FALCON_COMMON
+	depends on LGE_DISPLAY_COMMON
+	bool "Use LGE DISPLAY FALCON COMMON"
+	---help---
+	The FALCON COMMON provides support for 49410 panel
+
 config LGE_DISPLAY_BL_EXTENDED
      bool "LG DUAL Backlight"
 	default n
@@ -351,11 +356,20 @@ config LGE_DP_UNSUPPORT_NOTIFY
 	This config is for notification to framework unsupported
 	Displayport
 
-config FB_MSM_MDSS_KCAL_CTRL
-	depends on FB_MSM_MDSS
-	bool "MDSS color control"
-	default y
+config LGE_DISPLAY_LABIBB_RECOVERY
+	bool "Recover labibb by reboot system"
+	default n
 	---help---
-	  Enable sysfs for post-processing control of mdss-mdp5 display
-	  controllers in MDSS.
+	Recovery labibb by reboot system
 
+config LGE_INTERVAL_MONITOR
+	depends on LGE_DISPLAY_COMMON
+	bool "Frame Interval Monitor"
+	---help---
+	This feature provides Frame Interval Monitor scheme.
+
+config LGE_FBCN
+	depends on LGE_DISPLAY_COMMON
+	bool "Frame Based Clock Normalizer"
+	---help---
+	This feature provides Frame Based Clock Normalizer scheme.

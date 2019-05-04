@@ -65,6 +65,7 @@ obj-$(CONFIG_VEXPRESS_SYSCFG)	+= vexpress-syscfg.o
 obj-$(CONFIG_CXL_BASE)		+= cxl/
 obj-y				+= qcom/
 obj-$(CONFIG_TI_DRV2667) += ti_drv2667.o
+obj-$(CONFIG_LGE_IRRC)		+= lge_uei_irrc.o
 obj-$(CONFIG_USB_EXT_TYPE_C_PERICOM)	+= type-c-pericom.o
 obj-$(CONFIG_USB_EXT_TYPE_C_TI)		+= type-c-ti.o
 obj-$(CONFIG_QPNP_MISC) 	+= qpnp-misc.o
@@ -73,7 +74,3 @@ obj-$(CONFIG_MEMORY_STATE_TIME) += memory_state_time.o
 obj-$(CONFIG_APDS9930)		+= apds993x.o
 obj-$(CONFIG_UID_SYS_STATS) += uid_sys_stats.o
 obj-$(CONFIG_MEMORY_STATE_TIME) += memory_state_time.o
-obj-$(CONFIG_LGE_IRRC)		+= lge_uei_irrc.o
-obj-$(CONFIG_FORCE_FAST_CHARGE)		+= fastcharge/
-obj-$(CONFIG_SOUND_CONTROL)			+= sound_control.o
-

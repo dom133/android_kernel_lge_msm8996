@@ -25,6 +25,8 @@
 #include <linux/syscalls.h>
 #include <linux/compat.h>
 #include <linux/rcupdate.h>
+#include <linux/printk.h>
+
 
 struct timerfd_ctx {
 	union {
@@ -44,8 +46,6 @@ struct timerfd_ctx {
 	bool might_cancel;
 };
 
-static atomic_t instance_count = ATOMIC_INIT(0);
-
 static LIST_HEAD(cancel_list);
 static DEFINE_SPINLOCK(cancel_lock);
 
@@ -61,10 +61,17 @@ static inline bool isalarm(struct timerfd_ctx *ctx)
  * flag, but we do not re-arm the timer (in case it's necessary,
  * tintv.tv64 != 0) until the timer is accessed.
  */
+extern int lge_get_download_mode(void);
+#define timer_pr(fmt, ...) \
+	if(lge_get_download_mode())  \
+		printk(KERN_ERR pr_fmt(fmt), ##__VA_ARGS__)
 static void timerfd_triggered(struct timerfd_ctx *ctx)
 {
 	unsigned long flags;
-
+	if (isalarm(ctx)){
+		timer_pr("%s  ctx: %p  clockid: %d \n",
+			  __func__,ctx,ctx->clockid);
+	}
 	spin_lock_irqsave(&ctx->wqh.lock, flags);
 	ctx->expired = 1;
 	ctx->ticks++;
@@ -241,7 +248,11 @@ static unsigned int timerfd_poll(struct file *file, poll_table *wait)
 	if (ctx->ticks)
 		events |= POLLIN;
 	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
-
+	if (isalarm(ctx)){
+		timer_pr("%s pid:%d  ctx: %p  clockid: %d ticks: %llu\n",
+			  __func__,task_pid_vnr(current),ctx,ctx->clockid,
+	  		   (unsigned long long)ctx->ticks);
+	}
 	return events;
 }
 
@@ -390,9 +401,6 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 	int ufd;
 	struct timerfd_ctx *ctx;
 	enum alarmtimer_type type;
-	char task_comm_buf[TASK_COMM_LEN];
-	char file_name_buf[32];
-	int instance;
 
 	/* Check the TFD_* constants for consistency.  */
 	BUILD_BUG_ON(TFD_CLOEXEC != O_CLOEXEC);
@@ -424,12 +432,7 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 
 	ctx->moffs = ktime_mono_to_real((ktime_t){ .tv64 = 0 });
 
-	instance = atomic_inc_return(&instance_count);
-	get_task_comm(task_comm_buf, current);
-	snprintf(file_name_buf, sizeof(file_name_buf), "[timerfd%d_%.*s]",
-		 instance, (int)sizeof(task_comm_buf), task_comm_buf);
-
-	ufd = anon_inode_getfd(file_name_buf, &timerfd_fops, ctx,
+	ufd = anon_inode_getfd("[timerfd]", &timerfd_fops, ctx,
 			       O_RDWR | (flags & TFD_SHARED_FCNTL_FLAGS));
 	if (ufd < 0)
 		kfree(ctx);
@@ -447,12 +450,15 @@ static int do_timerfd_settime(int ufd, int flags,
 
 	if ((flags & ~TFD_SETTIME_FLAGS) ||
 	    !timespec_valid(&new->it_value) ||
-	    !timespec_valid(&new->it_interval))
+	    !timespec_valid(&new->it_interval)){
+		timer_pr("timer value is invalid");
 		return -EINVAL;
-
+	}
 	ret = timerfd_fget(ufd, &f);
-	if (ret)
+	if (ret){
+		timer_pr("timerfd_fget faild");
 		return ret;
+	}
 	ctx = f.file->private_data;
 
 	timerfd_setup_cancel(ctx, flags);
@@ -500,7 +506,21 @@ static int do_timerfd_settime(int ufd, int flags,
 
 	if (ctx->clockid == CLOCK_POWEROFF_ALARM)
 		set_power_on_alarm();
-
+	if (isalarm(ctx)){
+	timer_pr("ret:%d clockid: %d ticks: %llu settime flags: 0%o it_value: (%llu, %llu) it_interval: (%llu, %llu)\n"
+		"pid:%d  ctx: %p old it_value: (%llu, %llu) it_interval: (%llu, %llu)\n",
+			  ret,ctx->clockid, (unsigned long long)ctx->ticks,
+			  ctx->settime_flags,
+			  (unsigned long long)new->it_value.tv_sec,
+			  (unsigned long long)new->it_value.tv_nsec,
+			  (unsigned long long)new->it_interval.tv_sec,
+			  (unsigned long long)new->it_interval.tv_nsec,
+			  task_pid_vnr(current),ctx,
+			  (unsigned long long)old->it_value.tv_sec,
+			  (unsigned long long)old->it_value.tv_nsec,
+			  (unsigned long long)old->it_interval.tv_sec,
+			  (unsigned long long)old->it_interval.tv_nsec);
+	}
 	fdput(f);
 	return ret;
 }

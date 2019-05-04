@@ -23,25 +23,11 @@
 #include <linux/cpu.h>
 #include <linux/cpumask.h>
 #include <linux/suspend.h>
-#include <linux/clk/msm-clk-provider.h>
+#include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <trace/events/power.h>
-
-// Nebula: Default startup frequencies ( No Overclock Freq's Allowed Durning Bootup:
-#ifdef CONFIG_MACH_MSM8996_LUCYE
-// msm8996Pro Default startup frequencies
-#define CONFIG_CPU_FREQ_MIN_CLUSTER1	307200
-#define CONFIG_CPU_FREQ_MAX_CLUSTER1	2188800
-#define CONFIG_CPU_FREQ_MIN_CLUSTER2	307200
-#define CONFIG_CPU_FREQ_MAX_CLUSTER2	2342400
-#else // msm8996 Default startup frequencies
-#define CONFIG_CPU_FREQ_MIN_CLUSTER1	307200
-#define CONFIG_CPU_FREQ_MAX_CLUSTER1	1593600
-#define CONFIG_CPU_FREQ_MIN_CLUSTER2	307200
-#define CONFIG_CPU_FREQ_MAX_CLUSTER2	2150400
-#endif
 
 static DEFINE_MUTEX(l2bw_lock);
 
@@ -158,35 +144,7 @@ static int msm_cpufreq_init(struct cpufreq_policy *policy)
 			cpumask_set_cpu(cpu, policy->cpus);
 
 	if (cpufreq_frequency_table_cpuinfo(policy, table))
-	{
-		// Nebula: set default frequencies to prevent overclocking or underclocking during start
-		if (policy->cpu <= 1)
-		{
-			policy->cpuinfo.min_freq = CONFIG_CPU_FREQ_MIN_CLUSTER1;
-			policy->cpuinfo.max_freq = CONFIG_CPU_FREQ_MAX_CLUSTER1;
-		}
-
-		if (policy->cpu >= 2)
-		{
-			policy->cpuinfo.min_freq = CONFIG_CPU_FREQ_MIN_CLUSTER2;
-			policy->cpuinfo.max_freq = CONFIG_CPU_FREQ_MAX_CLUSTER2;
-		}
-
 		pr_err("cpufreq: failed to get policy min/max\n");
-	}
-
-	// Nebula: set default frequencies to prevent overclocking or underclocking during start
-	if (policy->cpu <= 1)
-	{
-		policy->min = CONFIG_CPU_FREQ_MIN_CLUSTER1;
-		policy->max = CONFIG_CPU_FREQ_MAX_CLUSTER1;
-	}
-
-	if (policy->cpu >= 2)
-	{
-		policy->min = CONFIG_CPU_FREQ_MIN_CLUSTER2;
-		policy->max = CONFIG_CPU_FREQ_MAX_CLUSTER2;
-	}
 
 	cur_freq = clk_get_rate(cpu_clk[policy->cpu])/1000;
 
@@ -438,11 +396,8 @@ static int __init msm_cpufreq_probe(struct platform_device *pdev)
 	for_each_possible_cpu(cpu) {
 		snprintf(clk_name, sizeof(clk_name), "cpu%d_clk", cpu);
 		c = devm_clk_get(dev, clk_name);
-		if (cpu == 0 && IS_ERR(c))
+		if (IS_ERR(c))
 			return PTR_ERR(c);
-		else if (IS_ERR(c))
-			c = cpu_clk[cpu-1];
-		c->flags |= CLKFLAG_NO_RATE_CACHE;
 		cpu_clk[cpu] = c;
 	}
 	hotplug_ready = true;
@@ -536,8 +491,8 @@ static int __init msm_cpufreq_register(void)
 	return cpufreq_register_driver(&msm_cpufreq_driver);
 }
 
-subsys_initcall(msm_cpufreq_register);
-
+//subsys_initcall(msm_cpufreq_register);
+arch_initcall_sync(msm_cpufreq_register);
 static int __init msm_cpufreq_early_register(void)
 {
 	return register_hotcpu_notifier(&msm_cpufreq_cpu_notifier);

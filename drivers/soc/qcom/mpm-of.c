@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2016, 2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,6 +39,7 @@
 #include <linux/irqchip/msm-mpm-irq.h>
 #include <linux/mutex.h>
 #include <asm/arch_timer.h>
+#include "../../drivers/clk/msm/clock.h"
 
 enum {
 	MSM_MPM_GIC_IRQ_DOMAIN,
@@ -134,12 +135,18 @@ enum {
 	MSM_MPM_DEBUG_PENDING_IRQ = BIT(1),
 	MSM_MPM_DEBUG_WRITE = BIT(2),
 	MSM_MPM_DEBUG_NON_DETECTABLE_IRQ_IDLE = BIT(3),
+#ifdef CONFIG_LGE_PM_DEBUG
+	/* 0x80 : runtime activation for checking xo shutdown */
+	LGE_MPM_DEBUG_POLL_IRQ_GPIO = BIT(7),
+#endif
 };
 
 static int msm_mpm_debug_mask = 1;
+#ifndef CONFIG_LGE_PM_DEBUG
 module_param_named(
 	debug_mask, msm_mpm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
 );
+#endif
 
 enum mpm_state {
 	MSM_MPM_GIC_IRQ_MAPPING_DONE = BIT(0),
@@ -507,6 +514,61 @@ int msm_mpm_set_pin_type(unsigned int pin, unsigned int flow_type)
 	return 0;
 }
 
+#ifdef CONFIG_LGE_PM_DEBUG
+struct delayed_work check_w;
+static void check_work(struct work_struct *work)
+{
+	bool allow = true;
+	bool allow_irq = true;
+	bool allow_gpio = true;
+
+	pr_err("-----------------------\n");
+	allow_irq = msm_mpm_irqs_detectable(true);
+	allow_gpio = msm_mpm_gpio_irqs_detectable(true);
+
+	if (allow_irq && allow_gpio)
+		allow = true;
+	else
+		allow = false;
+
+	pr_err("allow = %d -------------\n", allow);
+
+	if (allow) {
+		clock_debug_print_enabled();
+	}
+
+	if (msm_mpm_debug_mask & LGE_MPM_DEBUG_POLL_IRQ_GPIO)
+		schedule_delayed_work(&check_w, msecs_to_jiffies(3000));
+	else
+		pr_err("%s : stop LGE_MPM_DEBUG_POLL_IRQ_GPIO\n",
+				__func__);
+}
+
+static int __ref mpm_debug_set(const char *val,
+		const struct kernel_param *kp)
+{
+	int ret = 0;
+	int old = msm_mpm_debug_mask;
+
+	ret = param_set_int(val, kp);
+
+	pr_err("%s : debug_mask %d -> %d\n",
+			__func__, old, msm_mpm_debug_mask);
+
+	if (msm_mpm_debug_mask & LGE_MPM_DEBUG_POLL_IRQ_GPIO)
+		schedule_delayed_work(&check_w,
+				msecs_to_jiffies(10000));
+	return ret;
+}
+
+static struct kernel_param_ops module_ops = {
+	.set = mpm_debug_set,
+	.get = param_get_int,
+};
+module_param_cb(debug_mask, &module_ops, &msm_mpm_debug_mask,
+		S_IRUGO | S_IWUSR | S_IWGRP);
+#endif
+
 static bool msm_mpm_interrupts_detectable(int d, bool from_idle)
 {
 	unsigned long *irq_bitmap;
@@ -608,8 +670,13 @@ void msm_mpm_exit_sleep(bool from_idle)
 			unsigned int apps_irq = msm_mpm_get_irq_m2a(mpm_irq);
 			struct irq_desc *desc = apps_irq ?
 				irq_to_desc(apps_irq) : NULL;
+			struct irq_chip *chip = NULL;
 
-			if (desc && !irqd_is_level_type(&desc->irq_data)) {
+			if (desc)
+				chip = desc->irq_data.chip;
+
+			if (desc && !irqd_is_level_type(&desc->irq_data) &&
+				(!(chip && !strcmp(chip->name, "msmgpio")))) {
 				irq_set_pending(apps_irq);
 				if (from_idle) {
 					raw_spin_lock(&desc->lock);
@@ -682,7 +749,7 @@ static void msm_mpm_work_fn(struct work_struct *work)
 	unsigned long flags;
 	while (1) {
 		bool allow;
-		wait_for_completion_interruptible(&wake_wq);
+		wait_for_completion(&wake_wq);
 		spin_lock_irqsave(&msm_mpm_lock, flags);
 		allow = msm_mpm_irqs_detectable(true) &&
 				msm_mpm_gpio_irqs_detectable(true);
@@ -800,6 +867,11 @@ static int msm_mpm_dev_probe(struct platform_device *pdev)
 	}
 
 	msm_mpm_initialized |= MSM_MPM_DEVICE_PROBED;
+
+#ifdef CONFIG_LGE_PM_DEBUG
+	INIT_DELAYED_WORK(&check_w, check_work);
+#endif
+
 	return 0;
 }
 
@@ -1044,11 +1116,22 @@ arch_initcall(msm_mpm_device_init);
 
 void of_mpm_init(void)
 {
+#ifndef CONFIG_MACH_LGE
 	struct device_node *node;
+#else
+	static struct device_node *node =NULL;
+#endif
 	int i;
 	int ret;
 
+#ifndef CONFIG_MACH_LGE
 	node = of_find_matching_node(NULL, msm_mpm_match_table);
+#else
+	if(!node){
+		node = of_find_matching_node(NULL, msm_mpm_match_table);
+	}
+#endif
+
 	WARN_ON(!node);
 	if (node) {
 		__of_mpm_init(node);

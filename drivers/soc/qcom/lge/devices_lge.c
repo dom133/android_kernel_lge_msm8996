@@ -10,9 +10,9 @@
 #include <linux/platform_device.h>
 #include <asm/system_misc.h>
 
-//#ifdef CONFIG_LGE_USB_FACTORY
+#ifdef CONFIG_LGE_USB_FACTORY
 #include <linux/platform_data/lge_android_usb.h>
-//#endif
+#endif
 #ifdef CONFIG_LGE_ALICE_FRIENDS
 #include <soc/qcom/lge/lge_acc_nt_type.h>
 #endif
@@ -67,11 +67,11 @@ int display_panel_type;
 
 #ifdef CONFIG_LGE_PM_LGE_POWER_CLASS_BOARD_REVISION
 #else
-#if defined(CONFIG_MACH_MSM8996_LUCYE)
+#if defined(CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 char *rev_str[] = {"evb1", "evb2", "evb3", "rev_0", "rev_01", "rev_02", "rev_03", "rev_04",
-	"rev_a", "rev_b", "rev_c", "rev_d", "rev_10", "rev_11", "rev_12", "rev_13",
+	"rev_a", "rev_b", "rev_c", "rev_d", "rev_10", "rev_11", "rev_12", "rev_13", "rev_14", "rev_15", "rev_16",
 	"reserved"};
-#elif defined(CONFIG_MACH_MSM8996_ELSA)
+#elif defined(CONFIG_MACH_MSM8996_ELSA) || defined(CONFIG_MACH_MSM8996_ANNA)
 char *rev_str[] = {"evb1", "evb2", "evb3", "rev_0", "rev_01", "rev_02", "rev_a", "rev_b",
 	"rev_c", "rev_d", "rev_e", "rev_f", "rev_10", "rev_11", "rev_12", "rev_13",
 	"reserved"};
@@ -273,7 +273,7 @@ void lge_uart_console_set_ready(unsigned int ready)
 
 #endif /* CONFIG_LGE_EARJACK_DEBUGGER */
 
-//#ifdef CONFIG_LGE_USB_FACTORY
+#ifdef CONFIG_LGE_USB_FACTORY
 /* get boot mode information from cmdline.
  * If any boot mode is not specified,
  * boot mode is normal type.
@@ -282,7 +282,7 @@ static enum lge_boot_mode_type lge_boot_mode = LGE_BOOT_MODE_NORMAL;
 int __init lge_boot_mode_init(char *s)
 {
 	if (!strcmp(s, "charger"))
-		lge_boot_mode = LGE_BOOT_MODE_CHARGERLOGO;
+		lge_boot_mode = LGE_BOOT_MODE_CHARGER;
 	else if (!strcmp(s, "chargerlogo"))
 		lge_boot_mode = LGE_BOOT_MODE_CHARGERLOGO;
 	else if (!strcmp(s, "qem_56k"))
@@ -388,7 +388,7 @@ static int __init lge_android_usb_devices_init(void)
 	return platform_device_register(&lge_android_usb_device);
 }
 arch_initcall(lge_android_usb_devices_init);
-//#endif
+#endif
 
 #ifdef CONFIG_LGE_USB_DIAG_LOCK
 static struct platform_device lg_diag_cmd_device = {
@@ -422,11 +422,14 @@ arch_initcall(lge_add_qfprom_devices);
 
 #ifdef CONFIG_LGE_USB_G_LAF
 static enum lge_laf_mode_type lge_laf_mode = LGE_LAF_MODE_NORMAL;
+static enum lge_laf_mode_type lge_laf_mid = LGE_LAF_MODE_NORMAL;
 
 int __init lge_laf_mode_init(char *s)
 {
 	if (strcmp(s, "") && strcmp(s, "MID"))
 		lge_laf_mode = LGE_LAF_MODE_LAF;
+	if (!strcmp(s, "MID"))
+		lge_laf_mid = LGE_LAF_MODE_MID;
 
 	return 1;
 }
@@ -435,6 +438,11 @@ __setup("androidboot.laf=", lge_laf_mode_init);
 enum lge_laf_mode_type lge_get_laf_mode(void)
 {
 	return lge_laf_mode;
+}
+
+enum lge_laf_mode_type lge_get_laf_mid(void)
+{
+	return lge_laf_mid;
 }
 #endif
 
@@ -463,6 +471,22 @@ __setup("lge.bootreasoncode=", lge_check_bootreason);
 int lge_get_bootreason(void)
 {
 	return lge_boot_reason;
+}
+
+bool lge_check_recoveryboot(void)
+{
+	/*sync with android/bootable/bootloader/lk/platform/msm_shared/reboot.h
+		  RECOVERY_MODE           = 0x77665502,  */
+	if(lge_boot_reason == 0x77665502)
+	{
+		pr_info("LGE BOOT MODE is RECOVERY!!\n");
+		return true;
+	}
+	else
+	{
+		 pr_info("LGE BOOT MODE is not RECOVERY!!\n");
+		return false;
+	}
 }
 
 int on_hidden_reset;
@@ -498,20 +522,20 @@ int lge_get_mfts_mode(void)
 	return lge_mfts_mode;
 }
 
-#ifdef CONFIG_LGE_LCD_OFF_DIMMING
 int lge_get_bootreason_with_lcd_dimming(void)
 {
 	int ret = 0;
 
+#ifdef CONFIG_LGE_LCD_OFF_DIMMING
 	if (lge_get_bootreason() == 0x77665560)
 		ret = 1;
 	else if (lge_get_bootreason() == 0x77665561)
 		ret = 2;
 	else if (lge_get_bootreason() == 0x77665562)
 		ret = 3;
+#endif
 	return ret;
 }
-#endif
 
 /*
    for download complete using LAF image
@@ -585,6 +609,13 @@ int __init lge_android_fota(char *s)
 }
 __setup("androidboot.fota=", lge_android_fota);
 
+static int boot_recovery = 0;
+
+int lge_get_boot_partition_recovery(void)
+{
+	return boot_recovery;
+}
+
 static char lge_boot_partition_str[16] = "none";
 
 char* lge_get_boot_partition(void)
@@ -594,7 +625,14 @@ char* lge_get_boot_partition(void)
 
 int __init lge_boot_partition(char *s)
 {
-	strncpy(lge_boot_partition_str, s, 16);
+	strncpy(lge_boot_partition_str, s, 15);
+	lge_boot_partition_str[15] = '\0'; /* null character added */
+
+	if(!strncmp(lge_boot_partition_str, "recovery", strlen("recovery")))
+		boot_recovery = 1; /* recovery boot mode */
+	else
+		boot_recovery = 0; /* other    boot mode */
+
 	return 1;
 }
 __setup("lge.boot.partition=", lge_boot_partition);

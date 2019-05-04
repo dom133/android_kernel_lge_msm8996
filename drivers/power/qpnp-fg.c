@@ -72,6 +72,9 @@
 #define IBAT_VBAT_MASK		0x7F
 #define NO_OTP_PROF_RELOAD	BIT(6)
 #define REDO_FIRST_ESTIMATE	BIT(3)
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY
+#define REDO_BATID_DURING_FIRST_EST BIT(4)
+#endif
 #define RESTART_GO		BIT(0)
 #define THERM_DELAY_MASK	0xE0
 
@@ -274,7 +277,11 @@ static struct fg_mem_setting settings[FG_MEM_SETTING_MAX] = {
 	SETTING(BCL_MH_THRESHOLD,	0x47C,   3,      752),
 	SETTING(TERM_CURRENT,		0x40C,   2,      250),
 	SETTING(CHG_TERM_CURRENT,	0x4F8,   2,      250),
+#if defined (CONFIG_MACH_MSM8996_FALCON)
+	SETTING(IRQ_VOLT_EMPTY,		0x458,   3,      2800),
+#else
 	SETTING(IRQ_VOLT_EMPTY,		0x458,   3,      3100),
+#endif
 	SETTING(CUTOFF_VOLTAGE,		0x40C,   0,      3200),
 	SETTING(VBAT_EST_DIFF,		0x000,   0,      30),
 	SETTING(DELTA_SOC,			0x450,   3,      1),
@@ -339,6 +346,21 @@ static struct fg_mem_data fg_backup_regs[FG_BACKUP_MAX] = {
 };
 
 #ifdef CONFIG_LGE_PM
+extern bool minfreq_enabled;
+static void fg_set_minfreq(bool enable) {
+	int i;
+	minfreq_enabled = enable;
+	lock_device_hotplug();
+	for_each_online_cpu(i){
+		int ret;
+		ret = cpufreq_update_policy(i);
+		if (ret)
+			pr_err("Failed to set cpu%d minfreq %sable",
+			       i, enable ? "en" : "dis");
+	}
+	unlock_device_hotplug();
+	pr_info("Set minfreq %sable\n", enable ? "en" : "dis");
+}
 #define NUMBER_DELTA_TEMP 25
 
 static int temp_comp[NUMBER_DELTA_TEMP][2] = {
@@ -557,7 +579,11 @@ struct acfa_data {
 #endif
 #define THERMAL_COEFF_N_BYTES		6
 #ifdef CONFIG_LGE_PM_CYCLE_BASED_CHG_VOLTAGE
+#ifdef CONFIG_MACH_MSM8996_LUCYE_KR_F
+#define MAX_CYCLE_STEP	6
+#else
 #define MAX_CYCLE_STEP	4
+#endif
 #define DEFAULT_VFLOAT_VOTLAGE	4350
 #endif
 struct fg_chip {
@@ -784,7 +810,13 @@ struct fg_chip {
 	int			cycle_weight_avg_batt_temp;
 #endif
 #endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#ifdef CONFIG_MACH_MSM8996_FALCON
+	int			cut_off_normal_temp;
+	int			cut_off_low_temp;
+	int			cut_off_low_temp_flag;
+
+#endif
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	bool check_ima_err_handling;
 	struct delayed_work	guarantee_soc_interval_work;
 	int vint_err_pct;
@@ -794,6 +826,7 @@ struct fg_chip {
 static int update_cutoff_voltage(struct fg_chip *chip);
 static int fg_acfa_get_learning_count(struct fg_chip *chip);
 #endif
+
 /* FG_MEMIF DEBUGFS structures */
 #define ADDR_LEN	4	/* 3 byte address + 1 space character */
 #define CHARS_PER_ITEM	3	/* Format is 'XX ' */
@@ -867,6 +900,11 @@ static bool is_charger_available(struct fg_chip *chip);
 static void fg_set_cycle_based_offset(struct fg_chip *chip, int battery_cycle);
 static void update_cc_cv_setpoint(struct fg_chip *chip);
 #endif
+
+#ifdef CONFIG_MACH_MSM8996_FALCON
+static int update_cutoff_voltage(struct fg_chip *chip);
+#endif
+
 #define DEBUG_PRINT_BUFFER_SIZE 64
 static void fill_string(char *str, size_t str_len, u8 *buf, int buf_len)
 {
@@ -1184,6 +1222,8 @@ static int fg_set_ram_addr(struct fg_chip *chip, u16 *address)
 	defined(CONFIG_MACH_MSM8996_ELSA_DCM_JP) || \
 	defined(CONFIG_MACH_MSM8996_ANNA)
 #define COMP_FACTOR              60     /* -0.6degree/1A */
+#elif defined (CONFIG_MACH_MSM8996_FALCON)
+#define COMP_FACTOR              95
 #elif defined(CONFIG_MACH_MSM8996_LUCYE)
 #define COMP_FACTOR              66
 #else
@@ -1642,7 +1682,7 @@ static void fg_enable_irqs(struct fg_chip *chip, bool enable)
 		return;
 
 	if (enable) {
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 		pr_info("enable DELTA_SOC irq\n");
 #endif
 		enable_irq(chip->soc_irq[DELTA_SOC].irq);
@@ -1699,7 +1739,7 @@ static void fg_check_ima_error_handling(struct fg_chip *chip)
 	fg_enable_irqs(chip, false);
 	chip->use_last_cc_soc = true;
 	chip->ima_error_handling = true;
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	chip->check_ima_err_handling = true;
 #endif
 	if (!work_pending(&chip->ima_error_recovery_work))
@@ -2306,11 +2346,9 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 {
 	reinit_completion(&chip->batt_id_avail);
 	reinit_completion(&chip->fg_reset_done);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->batt_profile_init, 0);
+	schedule_delayed_work(&chip->batt_profile_init, 0);
 	cancel_delayed_work(&chip->update_sram_data);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->update_sram_data, msecs_to_jiffies(0));
+	schedule_delayed_work(&chip->update_sram_data, msecs_to_jiffies(0));
 }
 
 #ifndef CONFIG_LGE_PM
@@ -2337,7 +2375,7 @@ static u8 batt_to_setpoint_8b(int vbatt_mv)
 	return DIV_ROUND_CLOSEST(val, 5);
 }
 
-#ifndef CONFIG_MACH_MSM8996_LUCYE
+#if !defined (CONFIG_MACH_MSM8996_LUCYE) && !defined (CONFIG_MACH_MSM8996_FALCON)
 static u8 therm_delay_to_setpoint(u32 delay_us)
 {
 	u8 val;
@@ -2822,16 +2860,30 @@ int fg_age_detection_level(struct fg_chip *chip)
 {
 	int age_level = 0;
 
-	age_level = fg_age_detection(chip);
+	age_level = fg_age_ratio(chip);
 
-	if(age_level == 1)
-		age_level = 100;
-	else if(age_level == 2)
-		age_level = 80;
+	if(age_level > 90)
+		return 100;
+	else if(age_level > 80)
+		return 90;
+	else if(age_level > 70)
+		return 80;
+	else if(age_level > 60)
+		return 70;
+	else if(age_level > 50)
+		return 60;
+	else if(age_level > 40)
+		return 50;
+	else if(age_level > 30)
+		return 40;
+	else if(age_level > 20)
+		return 30;
+	else if(age_level > 10)
+		return 20;
+	else if (age_level > 0)
+		return 10;
 	else
-		age_level = 49;
-
-	return age_level;
+		return 0;
 }
 #endif
 
@@ -2903,9 +2955,9 @@ static int set_prop_jeita_temp(struct fg_chip *chip,
 	settings[type].value = decidegc;
 
 	cancel_delayed_work_sync(
-				&chip->update_jeita_setting);
-	queue_delayed_work(system_power_efficient_wq,
-				&chip->update_jeita_setting, 0);
+				 &chip->update_jeita_setting);
+	schedule_delayed_work(
+			      &chip->update_jeita_setting, 0);
 
 	return rc;
 }
@@ -3094,7 +3146,7 @@ static int update_sram_data(struct fg_chip *chip, int *resched_ms)
 	u8 reg[4];
 	int64_t temp;
 	int battid_valid = fg_is_batt_id_valid(chip);
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	int64_t temp_for_vint_err;
 #endif
 
@@ -3156,7 +3208,7 @@ static int update_sram_data(struct fg_chip *chip, int *resched_ms)
 						     FULL_PERCENT_28BIT);
 			break;
 		case FG_DATA_VINT_ERR:
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 			temp_for_vint_err = twos_compliment_extend(temp, 3);
 			chip->vint_err_pct = div64_s64(temp_for_vint_err * 10000, FULL_PERCENT_3B);
 			pr_info("vint err raw %d\n", chip->vint_err_pct);
@@ -3238,15 +3290,14 @@ out:
 	return rc;
 }
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 #define OFFSET_FOR_THRESHOLD_MV 100
 #define CHECK_VOLTAGE_COUNT 12
 #define VINT_ERR_FOR_FG_RESET 12
 #define CHECK_VINT_ERR_COUNT 12
-#define SANITY_CHECK_PERIOD_MS	10000
-#else
-#define SANITY_CHECK_PERIOD_MS	5000
 #endif
+#define SANITY_CHECK_PERIOD_MS	10000
+
 static void check_sanity_work(struct work_struct *work)
 {
 	struct fg_chip *chip = container_of(work,
@@ -3255,7 +3306,7 @@ static void check_sanity_work(struct work_struct *work)
 	int rc = 0;
 	u8 beat_count;
 	bool tried_once = false;
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	static int vint_err_count = 0;
 	static int vbat_count = 0;
 	int batt_vol;
@@ -3290,7 +3341,7 @@ try_again:
 		chip->last_beat_count = beat_count;
 	}
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	batt_vol = get_sram_prop_now(chip, FG_DATA_VOLTAGE) / 1000;
 
 #ifdef CONFIG_LGE_PM_CYCLE_BASED_CHG_VOLTAGE
@@ -3331,7 +3382,7 @@ try_again:
 #endif
 
 resched:
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 		&chip->check_sanity_work,
 		msecs_to_jiffies(SANITY_CHECK_PERIOD_MS));
 out:
@@ -3370,7 +3421,7 @@ static void update_sram_data_work(struct work_struct *work)
 
 out:
 	if (!rc)
-		queue_delayed_work(system_power_efficient_wq,
+		schedule_delayed_work(
 			&chip->update_sram_data,
 			msecs_to_jiffies(resched_ms));
 }
@@ -3385,6 +3436,13 @@ out:
 #define BATT_TEMP_ON		(FORCE_RBIAS_ON_BIT | TEMP_SENSE_ALWAYS_BIT | \
 				 TEMP_SENSE_CHARGE_BIT)
 #define TEMP_PERIOD_UPDATE_MS		10000
+
+#ifdef CONFIG_MACH_MSM8996_FALCON
+#define CUT_OFF_LOW_LIMIT_TEMP		50	//5 dgree
+#define CUT_OFF_LOW_LIMIT_CLEAR_TEMP	100 //10 dgree
+#define LOW_TEMP_CUT_OFF_VOLTAGE	3300 //3.3V
+#endif
+
 #define TEMP_PERIOD_TIMEOUT_MS		3000
 #define BATT_TEMP_LOW_LIMIT		-600
 #define BATT_TEMP_HIGH_LIMIT		1500
@@ -3484,7 +3542,7 @@ static void update_temp_data(struct work_struct *work)
 	chip->cycle_weight_batt_temp = fg_data[0].value;
 #endif
 #endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 #define BATT_VTS_COEFFICIENT_XO		(-4)
 #define BATT_VTS_COEFFICIENT_BD2	(104)
 #define BATT_VTS_CONSTANT_DEFAULT	(-61)
@@ -3532,6 +3590,25 @@ static void update_temp_data(struct work_struct *work)
 	if (fg_debug_mask & FG_MEM_DEBUG_READS)
 		pr_info("BATT_TEMP %d %d\n", temp, fg_data[0].value);
 
+#ifdef CONFIG_MACH_MSM8996_FALCON
+	if ((fg_data[0].value < CUT_OFF_LOW_LIMIT_TEMP) &&
+			(settings[FG_MEM_CUTOFF_VOLTAGE].value != chip->cut_off_low_temp)){
+		settings[FG_MEM_CUTOFF_VOLTAGE].value = chip->cut_off_low_temp;
+		chip->cut_off_low_temp_flag = 1;
+		pr_err("low update_temp cut-off=%d & flag=%d\n",
+			settings[FG_MEM_CUTOFF_VOLTAGE].value, chip->cut_off_low_temp_flag);
+		update_cutoff_voltage(chip);
+	}
+	else if ((fg_data[0].value > CUT_OFF_LOW_LIMIT_CLEAR_TEMP) &&
+			(settings[FG_MEM_CUTOFF_VOLTAGE].value != chip->cut_off_normal_temp)){
+		settings[FG_MEM_CUTOFF_VOLTAGE].value = chip->cut_off_normal_temp;
+		chip->cut_off_low_temp_flag = 0;
+		pr_err("normal update_temp cut-off=%d & flag=%d\n",
+			settings[FG_MEM_CUTOFF_VOLTAGE].value, chip->cut_off_low_temp_flag);
+		update_cutoff_voltage(chip);
+	}
+#endif
+
 	get_current_time(&chip->last_temp_update_time);
 
 	if (chip->soc_slope_limiter_en) {
@@ -3551,7 +3628,7 @@ out:
 	fg_relax(&chip->update_temp_wakeup_source);
 
  resched:
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 			      &chip->update_temp_work,
 			      msecs_to_jiffies(TEMP_PERIOD_UPDATE_MS));
 }
@@ -4258,11 +4335,7 @@ static int estimate_battery_age(struct fg_chip *chip, int *actual_capacity)
 {
 	int64_t ocv_cutoff_new, ocv_cutoff_aged, temp_rs_to_rslow;
 	int64_t esr_actual, battery_esr, val;
-#ifdef CONFIG_LGE_PM
-	int soc_cutoff_aged, soc_cutoff_new, rc = 0;
-#else
 	int soc_cutoff_aged, soc_cutoff_new, rc;
-#endif
 	int battery_soc, unusable_soc, batt_temp;
 	u8 buffer[3];
 
@@ -4286,9 +4359,7 @@ static int estimate_battery_age(struct fg_chip *chip, int *actual_capacity)
 	}
 
 	battery_soc = get_battery_soc_raw(chip) * 100 / FULL_PERCENT_3B;
-	if (rc) {
-		goto error_done;
-	} else if (battery_soc < 25 || battery_soc > 75) {
+	if (battery_soc < 25 || battery_soc > 75) {
 		if (fg_debug_mask & FG_AGING)
 			pr_info("Battery SoC (%d) out of range, aborting\n",
 				(int)battery_soc);
@@ -5357,8 +5428,7 @@ static void status_change_work(struct work_struct *work)
 		 */
 		if (chip->last_temp_update_time && chip->soc_slope_limiter_en) {
 			cancel_delayed_work_sync(&chip->update_temp_work);
-			queue_delayed_work(system_power_efficient_wq,
-				&chip->update_temp_work,
+			schedule_delayed_work(&chip->update_temp_work,
 				msecs_to_jiffies(0));
 		}
 
@@ -5374,9 +5444,8 @@ static void status_change_work(struct work_struct *work)
 		 */
 		if (chip->last_sram_update_time + 5 < current_time) {
 			cancel_delayed_work(&chip->update_sram_data);
-			queue_delayed_work(system_power_efficient_wq,
-				&chip->update_sram_data,
-				msecs_to_jiffies(0));
+			schedule_delayed_work(&chip->update_sram_data,
+					      msecs_to_jiffies(0));
 		}
 
 		if (chip->cyc_ctr.en)
@@ -6594,8 +6663,7 @@ static irqreturn_t fg_vbatt_low_handler(int irq, void *_chip)
 			disable_irq_nosync(chip->batt_irq[VBATT_LOW].irq);
 			chip->vbat_low_irq_enabled = false;
 			fg_stay_awake(&chip->empty_check_wakeup_source);
-			queue_delayed_work(system_power_efficient_wq,
-				&chip->check_empty_work,
+			schedule_delayed_work(&chip->check_empty_work,
 				msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 		} else {
 			if (fg_debug_mask & FG_IRQS)
@@ -6692,7 +6760,7 @@ static irqreturn_t fg_mem_avail_irq_handler(int irq, void *_chip)
 #endif
 
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 #define GUARANTEE_INTERVAL_MS 1470
 static void guarantee_soc_interval_work(struct work_struct *work) {
 	struct fg_chip *chip = container_of(work,
@@ -6735,11 +6803,10 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 	}
 
 	/* Backup last soc every delta soc interrupt */
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	if (chip->check_ima_err_handling) {
 		pr_info("ima_error_handling before\n");
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->guarantee_soc_interval_work,
+		schedule_delayed_work(&chip->guarantee_soc_interval_work,
 			msecs_to_jiffies(GUARANTEE_INTERVAL_MS));
 	} else {
 		chip->use_last_soc = false;
@@ -6761,8 +6828,7 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 		msoc = get_monotonic_soc_raw(chip);
 		if (msoc == 0 || chip->soc_empty) {
 			fg_stay_awake(&chip->empty_check_wakeup_source);
-			queue_delayed_work(system_power_efficient_wq,
-				&chip->check_empty_work,
+			schedule_delayed_work(&chip->check_empty_work,
 				msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 		}
 	}
@@ -6796,7 +6862,7 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 #ifdef CONFIG_LGE_PM_CYCLE_BASED_CHG_VOLTAGE
 			|| chip->last_soc <= (chip->batt_recharge_threshold-chip->rescale_offset)){	//97.2%
 #else
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 			|| chip->last_soc <= chip->batt_recharge_threshold ){	//97.2%
 #else
 			|| chip->last_soc <= 0xF3 ){	//95.2%
@@ -6845,8 +6911,7 @@ static irqreturn_t fg_empty_soc_irq_handler(int irq, void *_chip)
 		pr_info("triggered 0x%x\n", soc_rt_sts);
 	if (fg_is_batt_empty(chip)) {
 		fg_stay_awake(&chip->empty_check_wakeup_source);
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->check_empty_work,
+		schedule_delayed_work(&chip->check_empty_work,
 			msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 	} else {
 		chip->soc_empty = false;
@@ -7495,8 +7560,7 @@ try_again:
 
 			if (!tried_once) {
 				cancel_delayed_work(&chip->update_sram_data);
-				queue_delayed_work(system_power_efficient_wq,
-					&chip->update_sram_data,
+				schedule_delayed_work(&chip->update_sram_data,
 					msecs_to_jiffies(0));
 				msleep(1000);
 				tried_once = true;
@@ -7712,6 +7776,52 @@ try_again:
 	chip->fg_restarting = false;
 	return -EINVAL;
 }
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY
+#ifdef CONFIG_MACH_MSM8996_FALCON
+#define BATT_ID_OPEN_KOHM	82	// average of 45kohm & 120kohm (open)
+#else
+#define BATT_ID_OPEN_KOHM	1000
+#endif
+static int battery_id_redetection(struct fg_chip *chip)
+{
+	u8 reg = 0;
+	int rc,id;
+	int unused;
+
+	rc = fg_mem_read(chip, &reg, PROFILE_INTEGRITY_REG, 1, 0, 1);
+	if (rc) {
+		pr_err("failed to read profile integrity\n");
+		return rc;
+	}
+
+	if (reg & PROFILE_INTEGRITY_BIT) {
+		pr_err("profile has been loaded, no need to redetect id\n");
+		return rc;
+	}
+
+	id = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+	pr_err("batt_id (boot-up): %d \n",id);
+	if (id/1000 < BATT_ID_OPEN_KOHM)
+		return rc;
+
+	fg_masked_write(chip, 0x4150,0x80, 0x80, 1); // set 0x80 to 0x4150
+	fg_masked_write(chip, chip->soc_base + SOC_RESTART,0xFF, 0, 1); //clear 0x4051
+	reg = REDO_BATID_DURING_FIRST_EST|REDO_FIRST_ESTIMATE;
+	fg_masked_write(chip, chip->soc_base + SOC_RESTART,reg, reg, 1); //set 0x18 to 0x4051
+	reg = REDO_BATID_DURING_FIRST_EST |REDO_FIRST_ESTIMATE| RESTART_GO;
+	fg_masked_write(chip, chip->soc_base + SOC_RESTART,reg, reg, 1); //set 0x19 to 0x4051
+	msleep(1000);
+	fg_masked_write(chip, chip->soc_base + SOC_RESTART,0xFF, 0, 1); //clear 0x4051
+	fg_masked_write(chip, 0x4150,0x80, 0, 1); // clear 0x4150
+
+	update_sram_data(chip, &unused);
+
+	id = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+	pr_err("batt_id (redetected): %d \n",id);
+
+	return rc;
+}
+#endif
 
 #define FG_PROFILE_LEN			128
 #define PROFILE_COMPARE_LEN		32
@@ -7732,7 +7842,6 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 	const char *data, *batt_type_str;
 	bool tried_again = false, vbat_in_range, profiles_same;
 	u8 reg = 0;
-
 
  wait:
 	fg_stay_awake(&chip->profile_wakeup_source);
@@ -7763,13 +7872,21 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 		goto update;
 	}
 
+#ifdef CONFIG_MACH_MSM8996_LUCYE_KR_F
+	batt_node = of_find_node_by_name(node, "lge,battery-data");
+	if (!batt_node) {
+		pr_warn("No available lge batterydata, using OTP defaults\n");
+		rc = 0;
+		goto no_profile;
+	}
+#else
 	batt_node = of_find_node_by_name(node, "qcom,battery-data");
 	if (!batt_node) {
 		pr_warn("No available batterydata, using OTP defaults\n");
 		rc = 0;
 		goto no_profile;
 	}
-
+#endif
 	if (fg_debug_mask & FG_STATUS)
 		pr_info("battery id = %d\n",
 			get_sram_prop_now(chip, FG_DATA_BATT_ID));
@@ -7851,7 +7968,7 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 	pr_info("scale criteria : [%d], recharge threshold : [%d]\n",
 		chip->batt_scale_criteria, chip->batt_recharge_threshold);
 #endif
-#if defined (CONFIG_MACH_MSM8996_LUCYE)
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	// temp patch
 	pr_err("chg_rs_to_rslow %d chg_rslow_comp_c1 %d chg_rslow_comp_c2 %d" \
 			" chg_rslow_comp_thr %d batt_max_voltage_uv %d\n",
@@ -7916,6 +8033,10 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 		pr_err("failed to read profile rc=%d\n", rc);
 		goto no_profile;
 	}
+
+#if defined(CONFIG_LGE_PM)
+	fg_set_minfreq(true);
+#endif
 
 	vbat_in_range = get_vbat_est_diff(chip)
 		< settings[FG_MEM_VBAT_EST_DIFF].value * 1000;
@@ -8038,6 +8159,10 @@ static int fg_batt_profile_init(struct fg_chip *chip)
 			pr_err("Error in updating ESR, rc=%d\n", rc);
 	}
 done:
+#if defined(CONFIG_LGE_PM)
+	fg_set_minfreq(false);
+#endif
+
 	if (chip->charging_disabled) {
 		rc = set_prop_enable_charging(chip, true);
 		if (rc)
@@ -8098,7 +8223,7 @@ done:
 		get_sram_prop_now(chip, FG_DATA_BATT_ESR)
 		);
 	cancel_delayed_work(&chip->update_sram_data);
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 			      &chip->update_sram_data,
 			      msecs_to_jiffies(0));
 #else
@@ -8127,12 +8252,12 @@ no_profile:
 
 update:
 	cancel_delayed_work(&chip->update_sram_data);
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 		&chip->update_sram_data,
 		msecs_to_jiffies(0));
 
 reschedule:
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 		&chip->batt_profile_init,
 		msecs_to_jiffies(BATTERY_PSY_WAIT_MS));
 	fg_relax(&chip->profile_wakeup_source);
@@ -8555,7 +8680,12 @@ out:
 }
 
 #ifdef CONFIG_LGE_PM_CYCLE_BASED_CHG_VOLTAGE
+#if defined (CONFIG_MACH_MSM8996_FALCON) || defined (CONFIG_MACH_MSM8996_LUCYE_KR_F)
+#define DEFAULT_FLOAT_VOLTAGE	4400
+#else
 #define DEFAULT_FLOAT_VOLTAGE	4350
+#endif
+
 static int fg_batt_cycle_offset_dt_init(struct fg_chip *chip)
 {
 	struct device_node *node = chip->spmi->dev.of_node;
@@ -8644,6 +8774,17 @@ static int fg_batt_cycle_offset_dt_init(struct fg_chip *chip)
 		goto out;
 	}
 
+#ifdef CONFIG_MACH_MSM8996_LUCYE_KR_F
+	for (i = 0; i < MAX_CYCLE_STEP; i++) {
+		if (chip->batt_life_cycle_vfloat[i] < 0 ||
+				chip->batt_life_cycle_vfloat[i] > 1000) {
+			pr_err("Incorrect fg-batt-life-cycle-vfloat\n");
+			goto out;
+		}
+		chip->batt_life_cycle_vfloat[i] = (chip->cc_cv_threshold_mv + 10)
+			- chip->batt_life_cycle_vfloat[i];
+	}
+#else
 	for (i = 0; i < MAX_CYCLE_STEP; i++) {
 		if (chip->batt_life_cycle_vfloat[i] < 3900 ||
 				chip->batt_life_cycle_vfloat[i] > 4500) {
@@ -8651,6 +8792,7 @@ static int fg_batt_cycle_offset_dt_init(struct fg_chip *chip)
 			goto out;
 		}
 	}
+#endif
 
 	if (fg_debug_mask & FG_AGING) {
 		for (i = 0; i < MAX_CYCLE_STEP; i++)
@@ -8800,8 +8942,15 @@ static int fg_of_init(struct fg_chip *chip)
 	OF_READ_SETTING(FG_MEM_TERM_CURRENT, "fg-iterm-ma", rc, 1);
 	OF_READ_SETTING(FG_MEM_CHG_TERM_CURRENT, "fg-chg-iterm-ma", rc, 1);
 	OF_READ_SETTING(FG_MEM_CUTOFF_VOLTAGE, "fg-cutoff-voltage-mv", rc, 1);
+
 #ifdef CONFIG_LGE_PM_FG_ACFA
 	fg_acfa_dt_init(chip);
+#endif
+#ifdef CONFIG_MACH_MSM8996_FALCON
+	chip->cut_off_normal_temp = settings[FG_MEM_CUTOFF_VOLTAGE].value;
+	chip->cut_off_low_temp = LOW_TEMP_CUT_OFF_VOLTAGE;
+	chip->cut_off_low_temp_flag = 0;
+	pr_err("normal temp cut-off=%d, low temp cut-off=%d\n", chip->cut_off_normal_temp, chip->cut_off_low_temp );
 #endif
 	data = of_get_property(chip->spmi->dev.of_node,
 			       "qcom,thermal-coefficients", &len);
@@ -9245,7 +9394,7 @@ static void fg_cancel_all_works(struct fg_chip *chip)
 	cancel_delayed_work_sync(&chip->update_jeita_setting);
 	cancel_delayed_work_sync(&chip->check_empty_work);
 	cancel_delayed_work_sync(&chip->batt_profile_init);
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	cancel_delayed_work_sync(&chip->guarantee_soc_interval_work);
 #endif
 	alarm_try_to_cancel(&chip->fg_cap_learning_alarm);
@@ -9862,7 +10011,7 @@ static int fg_common_hw_init(struct fg_chip *chip)
 		return rc;
 	}
 
-#ifndef CONFIG_MACH_MSM8996_LUCYE
+#if !defined (CONFIG_MACH_MSM8996_LUCYE) && !defined (CONFIG_MACH_MSM8996_FALCON)
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_THERM_DELAY].address,
 				 THERM_DELAY_MASK,
 				 therm_delay_to_setpoint(settings[FG_MEM_THERM_DELAY].value),
@@ -10328,7 +10477,7 @@ wait:
 	if (rc < 0)
 		pr_err("Error in clearing VACT_INT_ERR, rc=%d\n", rc);
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	pr_info("IMA error recovery done...\n");
 #else
 	if (fg_debug_mask & FG_STATUS)
@@ -10340,8 +10489,7 @@ out:
 	fg_enable_irqs(chip, true);
 	update_sram_data_work(&chip->update_sram_data.work);
 	update_temp_data(&chip->update_temp_work.work);
-	queue_delayed_work(system_power_efficient_wq,
-		&chip->check_sanity_work,
+	schedule_delayed_work(&chip->check_sanity_work,
 		msecs_to_jiffies(1000));
 	chip->ima_error_handling = false;
 	mutex_unlock(&chip->ima_recovery_lock);
@@ -10359,7 +10507,7 @@ static int fg_memif_init(struct fg_chip *chip)
 #ifndef CONFIG_LGE_PM
 	u8 dig_major;
 #endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	static u8 count = 0;
 
 retry:
@@ -10406,7 +10554,7 @@ retry:
 		/* check for error condition */
 		rc = fg_check_ima_exception(chip, true);
 		if (rc) {
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 			pr_err("Error in clearing IMA exception rc=%d, count %d\n", rc, count);
 			if (count < 3) {
 				count++;
@@ -10497,7 +10645,7 @@ static void delayed_init_work(struct work_struct *work)
 	/* release memory access before update_sram_data is called */
 	fg_mem_release(chip);
 
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 			      &chip->update_jeita_setting,
 			      msecs_to_jiffies(INIT_JEITA_DELAY_MS));
 
@@ -10507,13 +10655,15 @@ static void delayed_init_work(struct work_struct *work)
 	if (chip->last_temp_update_time == 0)
 		update_temp_data(&chip->update_temp_work.work);
 
+#ifdef CONFIG_LGE_PM_EMBEDDED_BATTERY
+	battery_id_redetection(chip);
+#endif
+
 	if (!chip->use_otp_profile)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->batt_profile_init, 0);
+		schedule_delayed_work(&chip->batt_profile_init, 0);
 
 	if (chip->ima_supported && fg_reset_on_lockup)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->check_sanity_work,
+		schedule_delayed_work(&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
 
 	if (chip->wa_flag & IADC_GAIN_COMP_WA) {
@@ -10657,7 +10807,7 @@ static int fg_probe(struct spmi_device *spmi)
 	schedule_delayed_work(&chip->soc_level_log, 1000);
 #endif
 #endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	INIT_DELAYED_WORK(&chip->guarantee_soc_interval_work, guarantee_soc_interval_work);
 #endif
 
@@ -10765,7 +10915,7 @@ static int fg_probe(struct spmi_device *spmi)
 #ifdef CONFIG_LGE_PM_SOC_RECHARGING_WA
 	chip->batt_recharge_threshold = SOC_BASE_RECHARGE_THRESHOLD;
 #endif
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE) || defined (CONFIG_MACH_MSM8996_FALCON)
 	chip->check_ima_err_handling = false;
 #endif
 	if (chip->jeita_hysteresis_support) {
@@ -10909,7 +11059,7 @@ static void check_and_update_sram_data(struct fg_chip *chip)
 	else
 		time_left = 0;
 
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 			      &chip->update_temp_work, msecs_to_jiffies(time_left * 1000));
 
 	next_update_time = chip->last_sram_update_time
@@ -10920,7 +11070,7 @@ static void check_and_update_sram_data(struct fg_chip *chip)
 	else
 		time_left = 0;
 
-	queue_delayed_work(system_power_efficient_wq,
+	schedule_delayed_work(
 			      &chip->update_sram_data, msecs_to_jiffies(time_left * 1000));
 }
 
@@ -11032,8 +11182,7 @@ static int fg_reset_lockup_set(const char *val, const struct kernel_param *kp)
 		pr_info("fg_reset_on_lockup set to %d\n", fg_reset_on_lockup);
 
 	if (fg_reset_on_lockup)
-		queue_delayed_work(system_power_efficient_wq,
-			&chip->check_sanity_work,
+		schedule_delayed_work(&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
 	else
 		cancel_delayed_work_sync(&chip->check_sanity_work);

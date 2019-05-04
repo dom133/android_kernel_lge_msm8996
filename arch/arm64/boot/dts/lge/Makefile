@@ -1,3 +1,16 @@
+ifeq ($(CONFIG_MACH_MSM8996_FALCON_LAO_COM),y)
+DTS_TARGET := msm8996-falcon_lao_com
+endif
+
+ifeq ($(CONFIG_MACH_MSM8996_FALCON_GLOBAL_COM),y)
+DTS_TARGET := msm8996-falcon_global_com
+endif
+
+
+ifeq ($(CONFIG_MACH_MSM8996_FALCON_KR),y)
+DTS_TARGET := msm8996-falcon_kr
+endif
+
 ifeq ($(CONFIG_MACH_MSM8996_H1_KR),y)
 DTS_TARGET := msm8996-h1_kr
 endif
@@ -90,6 +103,14 @@ ifeq ($(CONFIG_MACH_MSM8996_ELSA_GLOBAL_COM),y)
 DTS_TARGET := msm8996-elsa_global_com
 endif
 
+ifeq ($(CONFIG_MACH_MSM8996_ANNA_GLOBAL_COM),y)
+DTS_TARGET := msm8996-anna_global_com
+endif
+
+ifeq ($(CONFIG_MACH_MSM8996_ANNA_KR),y)
+DTS_TARGET := msm8996-anna_kr
+endif
+
 ifeq ($(CONFIG_MACH_MSM8996_ELSA_GLOBAL_LIVE_DUMMY),y)
 DTS_TARGET := msm8996-elsa_global_livedummy
 endif
@@ -112,6 +133,10 @@ endif
 
 ifeq ($(CONFIG_MACH_MSM8996_LUCYE_KR),y)
 DTS_TARGET := msm8996-lucye_kr
+endif
+
+ifeq ($(CONFIG_MACH_MSM8996_LUCYE_KR_F),y)
+DTS_TARGET := msm8996-lucye_kr_f
 endif
 
 ifeq ($(CONFIG_MACH_MSM8996_LUCYE_GLOBAL_COM),y)
@@ -156,6 +181,10 @@ endif
 
 ifeq ($(CONFIG_MACH_MSM8996_LUCYE_ACG_US),y)
 DTS_TARGET := msm8996-lucye_acg_us
+endif
+
+ifeq ($(CONFIG_MACH_MSM8996_LUCYE_TRF_US_VZW),y)
+DTS_TARGET := msm8996-lucye_trf_us_vzw
 endif
 
 ALL_DTS := $(notdir $(wildcard echo $(srctree)/$(src)/$(DTS_TARGET)/*.dts))

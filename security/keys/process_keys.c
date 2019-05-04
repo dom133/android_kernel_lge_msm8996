@@ -76,9 +76,7 @@ int install_user_keyrings(void)
 		if (IS_ERR(uid_keyring)) {
 			uid_keyring = keyring_alloc(buf, user->uid, INVALID_GID,
 						    cred, user_keyring_perm,
-						    KEY_ALLOC_UID_KEYRING |
-							KEY_ALLOC_IN_QUOTA,
-						    NULL);
+						    KEY_ALLOC_IN_QUOTA, NULL);
 			if (IS_ERR(uid_keyring)) {
 				ret = PTR_ERR(uid_keyring);
 				goto error;
@@ -94,9 +92,7 @@ int install_user_keyrings(void)
 			session_keyring =
 				keyring_alloc(buf, user->uid, INVALID_GID,
 					      cred, user_keyring_perm,
-					      KEY_ALLOC_UID_KEYRING |
-						  KEY_ALLOC_IN_QUOTA,
-					      NULL);
+					      KEY_ALLOC_IN_QUOTA, NULL);
 			if (IS_ERR(session_keyring)) {
 				ret = PTR_ERR(session_keyring);
 				goto error_release;
@@ -410,7 +406,13 @@ key_ref_t search_my_process_keyrings(struct keyring_search_context *ctx)
 		}
 	}
 	/* or search the user-session keyring */
-	else if (ctx->cred->user->session_keyring) {
+
+	/*
+	 * LGE Modified : encryption-vpn@lge.com
+	 * ecryptfs cannot find user session_keyring
+	 * if there is session_keyring too.
+	 */
+	if (ctx->cred->user->session_keyring) {
 		key_ref = keyring_search_aux(
 			make_key_ref(ctx->cred->user->session_keyring, 1),
 			ctx);

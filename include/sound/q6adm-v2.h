@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,8 +28,6 @@
 #define AUD_VOL_BLOCK_SIZE	4096
 #define AUDIO_RX_CALIBRATION_SIZE	(AUD_PROC_BLOCK_SIZE + \
 						AUD_VOL_BLOCK_SIZE)
-#define SESSION_TYPE_RX 0
-#define SESSION_TYPE_TX 1
 enum {
 	ADM_CUSTOM_TOP_CAL = 0,
 	ADM_AUDPROC_CAL,
@@ -64,6 +62,13 @@ struct route_payload {
 	int sample_rate;
 	unsigned short num_copps;
 	unsigned int session_id;
+};
+
+
+struct msm_pcm_channel_mux {
+	int out_channel;
+	int input_channel;
+	u16 channel_config[16][16];
 };
 
 struct default_chmixer_param_id_coeff {
@@ -182,6 +187,5 @@ int adm_get_source_tracking(int port_id, int copp_idx,
 int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 			int session_type,
 			struct msm_pcm_channel_mixer *ch_mixer,
-			int channel_index, bool use_default_chmap,
-			char *ch_map);
+			int channel_index);
 #endif /* __Q6_ADM_V2_H__ */

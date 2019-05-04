@@ -1003,6 +1003,8 @@ static void mdss_dsi_8996_phy_config(struct mdss_dsi_ctrl_pdata *ctrl)
 	int j, off, ln, cnt, ln_off;
 	char *ip;
 	void __iomem *base;
+	u32 data;
+	struct mdss_panel_info *pinfo;
 
 	pd = &(((ctrl->panel_data).panel_info.mipi).dsi_phy_db);
 
@@ -1090,6 +1092,13 @@ static void mdss_dsi_8996_phy_config(struct mdss_dsi_ctrl_pdata *ctrl)
 			mdss_dsi_8996_pll_source_standalone(ctrl);
 	}
 
+	pinfo = &ctrl->panel_data.panel_info;
+	if (!(pinfo->allow_phy_power_off) && (pinfo->type == MIPI_CMD_PANEL)) {
+		data = MIPI_INP(ctrl->phy_io.base + DSIPHY_CMN_CTRL_0);
+		MIPI_OUTP(ctrl->phy_io.base + DSIPHY_CMN_CTRL_0, data | 0x7f);
+	} else {
+		MIPI_OUTP(ctrl->phy_io.base + DSIPHY_CMN_CTRL_0, 0x7f);
+	}
 	wmb(); /* make sure registers committed */
 }
 
@@ -2300,9 +2309,11 @@ int mdss_dsi_post_clkoff_cb(void *priv,
 		 * transition to LP2 state whenever core power is turned off
 		 * in LP1 state
 		 */
+#if !defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
 		if (mdss_dsi_is_panel_on_lp(pdata))
 			mdss_dsi_panel_power_ctrl(pdata,
 				MDSS_PANEL_POWER_LP2);
+#endif
 	}
 	return rc;
 }
@@ -2359,8 +2370,10 @@ int mdss_dsi_pre_clkon_cb(void *priv,
 		 * send a frame update when in LP1, we have to explicitly exit
 		 * LP2 state here
 		 */
+#if !defined(CONFIG_LGE_DISPLAY_AMBIENT_SUPPORTED)
 		if (mdss_dsi_is_panel_on_ulp(pdata))
 			mdss_dsi_panel_power_ctrl(pdata, MDSS_PANEL_POWER_LP1);
+#endif
 	}
 	/* Disable dynamic clock gating*/
 	if (ctrl->mdss_util->dyn_clk_gating_ctrl)

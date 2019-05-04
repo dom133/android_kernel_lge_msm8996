@@ -2025,14 +2025,6 @@ static int path_lookupat(int dfd, const char *name,
 		}
 	}
 
-	if (!err) {
-		struct super_block *sb = nd->inode->i_sb;
-		if (sb->s_flags & MS_RDONLY) {
-			if (d_is_su(nd->path.dentry) && !su_visible())
-				err = -ENOENT;
-		}
-	}
-
 out:
 	if (base)
 		fput(base);
@@ -3895,7 +3887,6 @@ SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
 
 	if (flag & AT_REMOVEDIR)
 		return do_rmdir(dfd, pathname);
-
 	return do_unlinkat(dfd, pathname);
 }
 

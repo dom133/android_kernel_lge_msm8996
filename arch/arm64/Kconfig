@@ -17,7 +17,7 @@ config ARM64
 	select AUDIT_ARCH_COMPAT_GENERIC
 	select ARM_GIC_V2M if PCI_MSI
 	select ARM_GIC_V3
-	select ARM_GIC_V3_ITS if PCI_MSI
+	select ARM_GIC_V3_ITS if (PCI_MSI && !MACH_LGE)
 	select BUILDTIME_EXTABLE_SORT
 	select CLONE_BACKWARDS
 	select COMMON_CLK if !ARCH_MSM
@@ -64,7 +64,6 @@ config ARM64
 	select HAVE_FUNCTION_TRACER
 	select HAVE_FUNCTION_GRAPH_TRACER
 	select HAVE_GENERIC_DMA_COHERENT
-	select HAVE_HW_BREAKPOINT if PERF_EVENTS
 	select HAVE_IRQ_TIME_ACCOUNTING
 	select HAVE_MEMBLOCK
 	select HAVE_PATA_PLATFORM
@@ -701,7 +700,9 @@ config ARCH_NR_GPIO
 
 source kernel/Kconfig.preempt
 
-source kernel/Kconfig.hz
+config HZ
+	int
+	default 100
 
 config ARCH_HAS_HOLES_MEMORYMODEL
 	def_bool y if SPARSEMEM
@@ -809,6 +810,23 @@ config UNMAP_KERNEL_AT_EL0
 	  userspace. This can be defended against by unmapping the kernel
 	  when running in userspace, mapping it back in on exception entry
 	  via a trampoline page in the vector table.
+
+	  If unsure, say Y.
+
+config HARDEN_BRANCH_PREDICTOR
+	bool "Harden the branch predictor against aliasing attacks" if EXPERT
+	default y
+	help
+	  Speculation attacks against some high-performance processors rely on
+	  being able to manipulate the branch predictor for a victim context by
+	  executing aliasing branches in the attacker context.  Such attacks
+	  can be partially mitigated against by clearing internal branch
+	  predictor state and limiting the prediction logic in some situations.
+
+	  This config option will take CPU-specific actions to harden the
+	  branch predictor against aliasing attacks and may rely on specific
+	  instruction sequences or control bits being set by the system
+	  firmware.
 
 	  If unsure, say Y.
 
@@ -964,149 +982,6 @@ config CMDLINE_FORCE
 	  This is useful if you cannot or don't want to change the
 	  command-line options your boot loader passes to the kernel.
 endchoice
-
-config CMDLINE_SEARCHREPLACE
-        bool
-
-config CMDLINE_SAR_ENABLE0
-	bool "Enable search/replace pair 0"
-	select CMDLINE_SEARCHREPLACE
-	help
-	  This enables the first free pair of search-replace strings.  More are
-	  available below, though the documentation strings aren't duplicated.
-
-	  DANGEROUS! For experienced use only!
-
-config CMDLINE_SAR_SEARCH0
-	string "First search string"
-	depends on CMDLINE_SAR_ENABLE0
-	help
-	  Specifies a string to search for.  A space included at begining or
-	  end indicates the string must be the start/end of an argument.  If
-	  spaces are present here, they must also be present in the replacement
-	  if you don't wish to remove the space.
-
-config CMDLINE_SAR_REPLACE0
-	string "First replace string"
-	depends on CMDLINE_SAR_ENABLE0
-	help
-	  Specifies the replacement for first string.  If the search string did
-	  NOT have a space at start/end, spaces at the start/end of this string
-	  will cause the replacement to replace all the way to the end of
-	  argument.  A single space will cause the matched string to be
-	  deleted.
-
-	  The pair " foo=" and " foo=bar " will search for an argument begining
-	  with "foo=" and then replace the whole argument with "foo=bar".  A
-	  single space will cause the removal of the matched argument.
-
-config CMDLINE_SAR_ENABLE1
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH1
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE1
-
-config CMDLINE_SAR_REPLACE1
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE1
-
-config CMDLINE_SAR_ENABLE2
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH2
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE2
-
-config CMDLINE_SAR_REPLACE2
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE2
-
-config CMDLINE_SAR_ENABLE3
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH3
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE3
-
-config CMDLINE_SAR_REPLACE3
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE3
-
-config CMDLINE_SAR_ENABLE4
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH4
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE4
-
-config CMDLINE_SAR_REPLACE4
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE4
-
-config CMDLINE_SAR_ENABLE5
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH5
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE5
-
-config CMDLINE_SAR_REPLACE5
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE5
-
-config CMDLINE_SAR_ENABLE6
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH6
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE6
-
-config CMDLINE_SAR_REPLACE6
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE6
-
-config CMDLINE_SAR_ENABLE7
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH7
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE7
-
-config CMDLINE_SAR_REPLACE7
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE7
-
-config CMDLINE_SAR_ENABLE8
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH8
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE8
-
-config CMDLINE_SAR_REPLACE8
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE8
-
-config CMDLINE_SAR_ENABLE9
-	bool "see above"
-	select CMDLINE_SEARCHREPLACE
-
-config CMDLINE_SAR_SEARCH9
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE9
-
-config CMDLINE_SAR_REPLACE9
-	string "see above"
-	depends on CMDLINE_SAR_ENABLE9
 
 config EFI_STUB
 	bool

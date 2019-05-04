@@ -1008,8 +1008,7 @@ config TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE_EXTRA_SYSFS
 
 config SECURE_TOUCH
 	bool "Secure Touch"
-	depends on (TOUCHSCREEN_SYNAPTICS_I2C_RMI4 || \
-	  TOUCHSCREEN_SYNAPTICS_DSX_I2C_v21 || TOUCHSCREEN_ATMEL_MXT || \
+	depends on (TOUCHSCREEN_SYNAPTICS_DSX_I2C_v21 || TOUCHSCREEN_ATMEL_MXT || \
 	  TOUCHSCREEN_ATMEL_MAXTOUCH_TS)
 	help
 	  Say Y here to enable Secure Touch in supported drivers.
@@ -1137,17 +1136,5 @@ config TOUCHSCREEN_MAXIM_STI
 	  module will be called maxim_sti.
 
 source "drivers/input/touchscreen/gt9xx/Kconfig"
-
-config TOUCHSCREEN_HIMAX_CHIPSET
-	bool "Himax touchpanel CHIPSET"
-	depends on I2C
-	help
-	  Say Y here if you have a Himax CHIPSET touchscreen.
-	  HIMAX controllers are multi touch controllers which can
-	  report 10 touches at a time.
-
-          If unsure, say N.
-
-source "drivers/input/touchscreen/hxchipset/Kconfig"
 
 endif

@@ -10,19 +10,17 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/kconfig.h>
-
 #include "msm8996-elsa_vzw-pinctrl.dtsi"
 #include "msm8996-elsa_vzw-misc.dtsi"
 #include "msm8996-elsa_vzw-panel.dtsi"
 #include "msm8996-elsa_vzw-pm.dtsi"
 #include "msm8996-elsa_vzw-sound.dtsi"
-#include "../msm8996-elsa-connectivity.dtsi"
-#include "../msm8996-nfc.dtsi"
-#include "../msm8996-elsa-hdmi.dtsi"
-#include "../msm8996-fingerprint-fpc1022.dtsi"
+#include "msm8996-elsa_vzw-connectivity.dtsi"
+#include "msm8996-elsa_vzw-nfc.dtsi"
+#include "msm8996-elsa_vzw-hdmi.dtsi"
+#include "msm8996-elsa_vzw-fingerprint.dtsi"
 #include "msm8996-elsa_vzw-usb.dtsi"
-#include "../msm8996-lineage.dtsi"
+#include "msm8996-elsa_vzw-pkm.dtsi"
 
 / {
 	reserved-memory {
@@ -159,7 +157,7 @@
 };
 
 &sdcc1_ice {
-	status = "ok";
+        status = "ok";
 };
 
 &ufsphy1 {
@@ -257,7 +255,7 @@
 		qcom,fast-avg-setup = <0>;
 	};
 
-	chan@72 {
+        chan@72 {
 		label = "xo_therm";
 		reg = <0x72>;
 		qcom,decimation = <0>;
@@ -948,13 +946,13 @@
 };
 
 &pcie1 {
-	status = "disabled";
+       status = "disabled";
 };
 
 &pcie2 {
-	status = "disabled";
+       status = "disabled";
 };
 
 &pil_modem {
-	/delete-property/ qcom,mx-spike-wa;
+       /delete-property/ qcom,mx-spike-wa;
 };

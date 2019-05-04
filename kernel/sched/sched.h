@@ -1072,6 +1072,12 @@ static inline bool hmp_capable(void)
 	return max_possible_capacity != min_max_possible_capacity;
 }
 
+static inline bool is_min_capacity_cpu(int cpu)
+{
+	return cpu_max_possible_capacity(cpu) == min_max_possible_capacity;
+}
+
+
 /*
  * 'load' is in reference to "best cpu" at its best frequency.
  * Scale that in reference to a given cpu, accounting for how bad it is
@@ -1137,6 +1143,10 @@ dec_cumulative_runnable_avg(struct hmp_sched_stats *stats,
 	stats->cumulative_runnable_avg -= task_load;
 
 	BUG_ON((s64)stats->cumulative_runnable_avg < 0);
+
+#ifdef CONFIG_LGE_MSM8996_ISB_WA
+	asm volatile ("isb\n");
+#endif
 
 	set_pred_demands_sum(stats, stats->pred_demands_sum -
 			     p->ravg.pred_demand);
@@ -1351,9 +1361,17 @@ static inline void clear_reserved(int cpu)
 
 static inline u64 cpu_cravg_sync(int cpu, int sync)
 {
+#ifdef CONFIG_LGE_MSM8996_ISB_WA
+	struct rq *rq = NULL;
+#else
 	struct rq *rq = cpu_rq(cpu);
+#endif
 	u64 load;
 
+#ifdef CONFIG_LGE_MSM8996_ISB_WA
+	asm volatile ("isb\n");
+	rq = cpu_rq(cpu);
+#endif
 	load = rq->hmp_stats.cumulative_runnable_avg;
 
 	/*
@@ -2207,10 +2225,4 @@ static inline u64 irq_time_read(int cpu)
 }
 #endif /* CONFIG_64BIT */
 #endif /* CONFIG_IRQ_TIME_ACCOUNTING */
-
-/*
- * task_may_not_preempt - check whether a task may not be preemptible soon
- */
-extern bool task_may_not_preempt(struct task_struct *task, int cpu);
-
 #endif /* CONFIG_SCHED_QHMP */

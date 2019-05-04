@@ -28,6 +28,9 @@
 #include <linux/mutex.h>
 #include <linux/rcupdate.h>
 #include "input-compat.h"
+#if defined(CONFIG_LGE_TOUCH_CORE)
+#include <linux/input/lge_touch_notify.h>
+#endif
 
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@suse.cz>");
 MODULE_DESCRIPTION("Input core");
@@ -241,7 +244,11 @@ static int input_handle_abs_event(struct input_dev *dev,
 	if (pold) {
 		*pval = input_defuzz_abs_event(*pval, *pold,
 						dev->absinfo[code].fuzz);
+#if defined(CONFIG_LGE_TOUCH_CORE)
+		if (ignore_compared_event == 0 && *pold == *pval)
+#else
 		if (*pold == *pval)
+#endif
 			return INPUT_IGNORE_EVENT;
 
 		*pold = *pval;

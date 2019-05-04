@@ -54,9 +54,6 @@ static int xfrm_output_one(struct sk_buff *skb, int err)
 			goto error_nolock;
 		}
 
-		if (x->props.output_mark)
-			skb->mark = x->props.output_mark;
-
 		err = x->outer_mode->output(x, skb);
 		if (err) {
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEMODEERROR);
@@ -131,6 +128,18 @@ int xfrm_output_resume(struct sk_buff *skb, int err)
 
 		if (!skb_dst(skb)->xfrm)
 			return dst_output(skb);
+
+#ifdef CONFIG_XFRM_FRAG_ESP_BEFORE_TUNNEL_ENC
+        if (skb->protocol == htons(ETH_P_IPV6) ||
+                (skb->protocol == htons(ETH_P_IP) && skb->sk != NULL && skb->sk->sk_protocol != IPPROTO_TCP)) {
+            struct sock *sk = skb->sk;
+            if (skb_dst(skb)->next != NULL && skb_dst(skb)->next->xfrm != NULL) {
+                if (!(skb_dst(skb)->next->xfrm->outer_mode->flags & XFRM_MODE_FLAG_TUNNEL)) {
+                    return skb_dst(skb)->output(sk,skb);
+                }
+            }
+        }
+#endif
 
 		err = nf_hook(skb_dst(skb)->ops->family,
 			      NF_INET_POST_ROUTING, skb,

@@ -58,13 +58,12 @@
 
 
 /* wait for at most 2 vsync for lowest refresh rate (24hz) */
-#define KOFF_TIMEOUT_MS 84
-
-#if defined(CONFIG_LGE_DISPLAY_LUCYE_COMMON)
-#define KOFF_TIMEOUT msecs_to_jiffies(500)
+#if defined(CONFIG_LGE_DISPLAY_COMMON)
+#define KOFF_TIMEOUT_MS 500
 #else
-#define KOFF_TIMEOUT msecs_to_jiffies(KOFF_TIMEOUT_MS)
+#define KOFF_TIMEOUT_MS 84
 #endif
+#define KOFF_TIMEOUT msecs_to_jiffies(KOFF_TIMEOUT_MS)
 
 #define OVERFETCH_DISABLE_TOP		BIT(0)
 #define OVERFETCH_DISABLE_BOTTOM	BIT(1)
@@ -357,9 +356,6 @@ struct mdss_mdp_ctl_intfs_ops {
 
 	/* to update lineptr, [1..yres] - enable, 0 - disable */
 	int (*update_lineptr)(struct mdss_mdp_ctl *ctl, bool enable);
-
-	/* to wait for vsync */
-	int (*wait_for_vsync_fnc)(struct mdss_mdp_ctl *ctl);
 };
 
 /* FRC info used for Deterministic Frame Rate Control */

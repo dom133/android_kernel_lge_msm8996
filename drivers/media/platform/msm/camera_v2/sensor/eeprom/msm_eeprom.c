@@ -505,7 +505,7 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 		CDBG("memory_data[%d] = 0x%X\n", i, memptr[i]);
 
 #if 1 //def CONFIG_MACH_LGE
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 	{
 		// Read from EEPROM
 		// 0xA80    VCM, infinity code_0 DEGREE   (LSB)
@@ -1705,7 +1705,7 @@ static int eeprom_init_config32(struct msm_eeprom_ctrl_t *e_ctrl,
 		pr_err("%s:%d Power down failed rc %d\n",
 			__func__, __LINE__, rc);
 
-#ifdef CONFIG_MACH_MSM8996_LUCYE
+#if defined (CONFIG_MACH_MSM8996_LUCYE)
 	pr_err("%s:%d e_ctrl->eeprom_device_type %d\n",
 				__func__, __LINE__, e_ctrl->eeprom_device_type);
     if(e_ctrl->eeprom_device_type)
