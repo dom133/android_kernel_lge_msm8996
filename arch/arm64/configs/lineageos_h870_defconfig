@@ -1,0 +1,2 @@
+include lucye_global_com_common
+CONFIG_LOCALVERSION="-custom"
